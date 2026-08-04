@@ -1,6 +1,8 @@
 package net.gravijet.levelblock;
 
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import net.gravijet.levelblock.command.BlocksCommand;
+import net.gravijet.levelblock.command.BorderCommand;
 import net.gravijet.levelblock.command.LevelBlockCommand;
 import net.gravijet.levelblock.command.ResetCommand;
 import net.gravijet.levelblock.command.TimerCommand;
@@ -61,20 +63,23 @@ public final class Main extends JavaPlugin {
         WorldService worlds = new WorldService(cfg, state);
         AnimationService animations = new AnimationService(this, cfg, fxKey);
         border = new BorderService(cfg, state, worlds, animations);
-        actionBar = new ActionBarService(cfg, state, regions, border, worlds);
+        actionBar = new ActionBarService(cfg, state);
         barrier = new BarrierRenderer(cfg, state, regions);
-        UnlockService unlocks = new UnlockService(cfg, state, regions, animations, actionBar, msg);
-        game = new GameService(this, cfg, state, regions, worlds, border, animations, actionBar, storage, msg);
+        game = new GameService(this, cfg, state, regions, worlds, border, animations, storage, msg);
+        UnlockService unlocks = new UnlockService(cfg, state, regions, game, animations, msg);
 
-        ContainmentListener containment = new ContainmentListener(cfg, state, regions, game, unlocks);
+        ContainmentListener containment =
+                new ContainmentListener(cfg, state, regions, game, unlocks, border);
         getServer().getPluginManager().registerEvents(containment, this);
         getServer().getPluginManager().registerEvents(new PlayerListener(
-                this, state, regions, game, unlocks, border, actionBar, worlds, containment), this);
-        getServer().getPluginManager().registerEvents(new ProgressListener(state, game, worlds), this);
+                this, state, regions, game, unlocks, border, worlds, containment), this);
+        getServer().getPluginManager().registerEvents(new ProgressListener(this, state, game, worlds), this);
         getServer().getPluginManager().registerEvents(new DamageListener(game, worlds, fxKey), this);
 
         WorldReset worldReset = new WorldReset(this);
         TimerCommand timer = new TimerCommand(state, game, msg);
+        BlocksCommand blocks = new BlocksCommand(cfg, state, regions, unlocks, msg);
+        BorderCommand borderCommand = new BorderCommand(cfg, state, border, msg);
         LevelBlockCommand admin =
                 new LevelBlockCommand(this, cfg, state, game, storage, msg, this::reloadEverything);
         ResetCommand reset = new ResetCommand(this, cfg, worldReset, msg, this::beginReset);
@@ -82,6 +87,10 @@ public final class Main extends JavaPlugin {
         getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
             event.registrar().register(timer.build(),
                     "Startet, pausiert und stellt die Zeit der Challenge");
+            event.registrar().register(blocks.build(),
+                    "Zeigt freigeschaltete Bloecke, Guthaben und die naechsten Kosten");
+            event.registrar().register(borderCommand.build(),
+                    "Zeigt die Bordergroesse und setzt sie mit /border set");
             event.registrar().register(admin.build(),
                     "Steuert die Level = Block / Level = Border Challenge",
                     List.of("lb", "levelborder"));
@@ -96,9 +105,6 @@ public final class Main extends JavaPlugin {
         });
 
         startLoops();
-        getLogger().info("LevelBlock aktiviert - Modus: " + state.mode().display()
-                + ", XP: " + state.sharing().display()
-                + ", freigeschaltete Bloecke: " + regions.totalColumns());
     }
 
     private void startLoops() {
@@ -155,12 +161,8 @@ public final class Main extends JavaPlugin {
         if (game != null) {
             game.shutdown();
         }
-        if (actionBar != null) {
-            actionBar.shutdown();
-        }
         if (storage != null && !resetting) {
             storage.saveAll(false);
         }
-        getLogger().info("LevelBlock deaktiviert.");
     }
 }

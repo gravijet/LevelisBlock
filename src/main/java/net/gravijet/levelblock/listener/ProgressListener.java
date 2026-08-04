@@ -4,9 +4,12 @@ import net.gravijet.levelblock.Sharing;
 import net.gravijet.levelblock.core.GameService;
 import net.gravijet.levelblock.core.GameState;
 import net.gravijet.levelblock.world.WorldService;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerLevelChangeEvent;
+import org.bukkit.plugin.java.JavaPlugin;
 
 /**
  * Turns XP levels into unlock credits (block mode) or border growth (border mode).
@@ -14,11 +17,13 @@ import org.bukkit.event.player.PlayerLevelChangeEvent;
  */
 public final class ProgressListener implements Listener {
 
+    private final JavaPlugin plugin;
     private final GameState state;
     private final GameService game;
     private final WorldService worlds;
 
-    public ProgressListener(GameState state, GameService game, WorldService worlds) {
+    public ProgressListener(JavaPlugin plugin, GameState state, GameService game, WorldService worlds) {
+        this.plugin = plugin;
         this.state = state;
         this.game = game;
         this.worlds = worlds;
@@ -29,18 +34,35 @@ public final class ProgressListener implements Listener {
         if (!state.isRunning() || game.isSyncing()) {
             return;
         }
-        if (!worlds.isGameWorld(event.getPlayer().getWorld())) {
+        Player player = event.getPlayer();
+        if (!worlds.isGameWorld(player.getWorld())) {
+            return;
+        }
+        if (state.sharing() == Sharing.SHARED) {
+            resyncPool(player);
             return;
         }
         // Losing levels must not subtract progress the team already earned.
         int gained = event.getNewLevel() - event.getOldLevel();
         if (gained > 0) {
-            game.grantLevels(event.getPlayer(), gained);
-        } else if (state.sharing() == Sharing.SHARED) {
-            // Spending levels counts as well: without this an enchant or an anvil would
-            // leave the team on different values and "everybody has the same experience"
-            // would only hold until the first enchanting table.
-            game.mirrorExperience(event.getPlayer());
+            game.grantLevels(player, gained);
         }
+    }
+
+    /**
+     * Pulls the shared pool back in line after something changed a level directly:
+     * an enchanting table, an anvil, {@code /xp}, another plugin.
+     * <p>
+     * Deliberately one tick later. Vanilla fires this event from the middle of its own
+     * level-up loop, at a point where the bar progress is still an unnormalised
+     * intermediate value - reading it here would spread that garbage across the team, which
+     * is exactly how levels ended up matching while the bars did not.
+     */
+    private void resyncPool(Player player) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                game.syncSharedFrom(player);
+            }
+        });
     }
 }

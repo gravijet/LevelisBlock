@@ -66,6 +66,7 @@ public final class LevelBlockCommand {
             "unlock.cost",
             "unlock.cost-increase-every",
             "unlock.sneak-blocks",
+            "unlock.take-levels",
             "unlock.broadcast",
             "barrier.enabled",
             "barrier.color",
@@ -199,7 +200,7 @@ public final class LevelBlockCommand {
 
     private int showInfo(CommandContext<CommandSourceStack> context) {
         CommandSender to = sender(context);
-        to.sendMessage(Text.mm(cfg.prefix));
+        to.sendMessage(Text.mm(cfg.prefix + "<white>Uebersicht</white>"));
         to.sendMessage(game.describeStatus());
         if (to instanceof Player player && state.mode() == Mode.LEVEL_BLOCK) {
             to.sendMessage(msg.of("credits-own", "credits", state.credits(player.getUniqueId())));
@@ -212,8 +213,10 @@ public final class LevelBlockCommand {
 
     private int showHelp(CommandContext<CommandSourceStack> context) {
         CommandSender to = sender(context);
-        to.sendMessage(Text.mm(cfg.prefix));
+        to.sendMessage(Text.mm(cfg.prefix + "<white>Befehle</white>"));
         to.sendMessage(Text.mm("<gray>/lb <dark_gray>-</dark_gray> Status und eigenes Guthaben</gray>"));
+        to.sendMessage(Text.mm("<gray>/blocks <dark_gray>-</dark_gray> freigeschaltete Bloecke und Kosten</gray>"));
+        to.sendMessage(Text.mm("<gray>/border <dark_gray>-</dark_gray> aktuelle Bordergroesse</gray>"));
         to.sendMessage(Text.mm("<gray>/lb top <dark_gray>-</dark_gray> Rangliste der gesammelten Level</gray>"));
         if (!to.hasPermission(ADMIN)) {
             return Command.SINGLE_SUCCESS;
@@ -221,6 +224,9 @@ public final class LevelBlockCommand {
         to.sendMessage(Text.mm("""
                 <gray>/timer start <dark_gray>|</dark_gray> pause <dark_gray>|</dark_gray> resume \
                 <dark_gray>|</dark_gray> reset <dark_gray>|</dark_gray> set <zeit></gray>"""));
+        to.sendMessage(Text.mm("<gray>/timer resume <dark_gray>-</dark_gray> weiterspielen: alle in "
+                + "Survival und zurueck zum Start</gray>"));
+        to.sendMessage(Text.mm("<gray>/border set <groesse> <dark_gray>-</dark_gray> Border von Hand setzen</gray>"));
         to.sendMessage(Text.mm("<gray>/lb stop <dark_gray>-</dark_gray> Challenge beenden</gray>"));
         to.sendMessage(Text.mm("<gray>/lb mode <white>level_block|level_border</white></gray>"));
         to.sendMessage(Text.mm("<gray>/lb xp <white>individual|shared</white> "

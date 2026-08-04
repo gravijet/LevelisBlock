@@ -14,7 +14,9 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 
 /**
@@ -31,6 +33,7 @@ public final class WorldReset {
     private static final String MARKER_NAME = "pending-reset.txt";
 
     private final JavaPlugin plugin;
+    private boolean armed;
 
     public WorldReset(JavaPlugin plugin) {
         this.plugin = plugin;
@@ -70,22 +73,27 @@ public final class WorldReset {
     /**
      * Arms the reset. Everything happens after the server has shut down.
      *
-     * @return the folders that are going to be deleted
+     * @return the folders that are going to be deleted, empty when nothing was found
      */
     public List<File> arm() {
         List<File> folders = collectWorldFolders();
+        if (folders.isEmpty() || armed) {
+            return folders;
+        }
+        armed = true;
+
         long seed = new SecureRandom().nextLong();
         File properties = findServerProperties();
         writeMarker(folders);
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             // The plugin logger is gone at this point, so this goes straight to stdout.
-            System.out.println("[LevelBlock] Loesche Welten fuer den Reset...");
+            System.out.println("[Challenge] Loesche Welten fuer den Reset...");
             for (File folder : folders) {
                 deleteWithRetries(folder.toPath());
             }
             applySeed(properties, seed);
-            System.out.println("[LevelBlock] Reset vorbereitet - beim naechsten Start werden die "
+            System.out.println("[Challenge] Reset vorbereitet - beim naechsten Start werden die "
                     + "Welten mit Seed " + seed + " neu generiert.");
         }, "LevelBlock-WorldReset"));
 
@@ -94,29 +102,82 @@ public final class WorldReset {
 
     // ----------------------------------------------------------------- folders
 
-    /** Every loaded world folder, guarded so nothing outside the server directory is touched. */
+    /**
+     * Every world folder to delete, guarded so nothing outside the world container is
+     * touched.
+     * <p>
+     * Since 1.26 the dimensions of a world live inside it
+     * ({@code world/dimensions/minecraft/overworld}) instead of next to it, so
+     * {@link World#getWorldFolder()} no longer points at the world root. Comparing that
+     * path against the container therefore always failed and every world got skipped.
+     * The folder is resolved back to its root here, which also collapses the three
+     * dimensions of a 1.26 world into the single folder they actually share.
+     */
     private List<File> collectWorldFolders() {
-        List<File> folders = new ArrayList<>();
-        File container = Bukkit.getWorldContainer().getAbsoluteFile();
+        Path container = canonical(Bukkit.getWorldContainer());
+        if (container == null) {
+            plugin.getLogger().severe("Weltordner des Servers konnte nicht bestimmt werden.");
+            return List.of();
+        }
+        Map<Path, File> roots = new LinkedHashMap<>();
+
         for (World world : Bukkit.getWorlds()) {
-            File folder = world.getWorldFolder().getAbsoluteFile();
-            if (!folder.isDirectory()) {
-                continue;
-            }
-            File parent = folder.getParentFile();
-            if (parent == null || !parent.equals(container)) {
+            Path folder = canonical(world.getWorldFolder());
+            Path root = worldRoot(folder, container);
+            if (root == null) {
                 plugin.getLogger().warning("Welt \"" + world.getName() + "\" liegt ausserhalb des "
                         + "Weltordners und wird beim Reset uebersprungen: " + folder);
                 continue;
             }
-            if (!new File(folder, "level.dat").isFile()) {
-                plugin.getLogger().warning("Welt \"" + world.getName() + "\" hat keine level.dat und "
-                        + "wird beim Reset uebersprungen: " + folder);
+            if (roots.containsKey(root)) {
                 continue;
             }
-            folders.add(folder);
+            File dir = root.toFile();
+            if (!looksLikeWorld(dir)) {
+                plugin.getLogger().warning("Welt \"" + world.getName() + "\" sieht nicht wie ein "
+                        + "Weltordner aus und wird beim Reset uebersprungen: " + root);
+                continue;
+            }
+            roots.put(root, dir);
         }
-        return List.copyOf(folders);
+        return List.copyOf(roots.values());
+    }
+
+    /**
+     * The direct child of {@code container} that this folder sits in, or {@code null} when
+     * the folder is not below the container at all.
+     */
+    private static Path worldRoot(Path folder, Path container) {
+        if (folder == null || !folder.startsWith(container)) {
+            return null;
+        }
+        Path relative = container.relativize(folder);
+        if (relative.getNameCount() == 0) {
+            // The container itself - deleting that would take the whole server with it.
+            return null;
+        }
+        return container.resolve(relative.getName(0));
+    }
+
+    /** A world root holds level.dat; 1.26 keeps the dimension data in a sub-folder. */
+    private static boolean looksLikeWorld(File dir) {
+        if (!dir.isDirectory()) {
+            return false;
+        }
+        return new File(dir, "level.dat").isFile()
+                || new File(dir, "dimensions").isDirectory()
+                || new File(dir, "region").isDirectory();
+    }
+
+    private static Path canonical(File file) {
+        if (file == null) {
+            return null;
+        }
+        try {
+            return file.getCanonicalFile().toPath();
+        } catch (IOException ex) {
+            return file.getAbsoluteFile().toPath().normalize();
+        }
     }
 
     private void writeMarker(List<File> folders) {
@@ -154,7 +215,7 @@ public final class WorldReset {
                 return;
             }
         }
-        System.err.println("[LevelBlock] Konnte " + path + " nicht loeschen.");
+        System.err.println("[Challenge] Konnte " + path + " nicht loeschen.");
     }
 
     private static void deleteRecursively(Path path) throws IOException {
@@ -213,7 +274,7 @@ public final class WorldReset {
             }
             Files.write(properties.toPath(), lines, StandardCharsets.ISO_8859_1);
         } catch (IOException ex) {
-            System.err.println("[LevelBlock] server.properties konnte nicht geschrieben werden: "
+            System.err.println("[Challenge] server.properties konnte nicht geschrieben werden: "
                     + ex.getMessage());
         }
     }

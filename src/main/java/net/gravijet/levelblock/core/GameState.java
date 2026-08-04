@@ -44,6 +44,26 @@ public final class GameState {
     private long totalLevels;
     private int sharedCredits;
 
+    /**
+     * The team's experience in {@link Sharing#SHARED}, as an absolute point total.
+     * <p>
+     * One number, not one per player: level and bar progress are derived from it, so
+     * everybody always shows the same level, the same bar and the same point count. The
+     * old approach of copying one player's values onto the others could only ever be as
+     * correct as the moment it was read.
+     */
+    private long teamExperience;
+
+    /**
+     * Current border size in {@link Mode#LEVEL_BORDER}. Kept here rather than derived from
+     * the level count so an admin can set it with {@code /border set} without the next
+     * level snapping it back to whatever the formula says.
+     * <p>
+     * A non-positive value means "never initialised" - the run has not started yet, so the
+     * configured start size applies.
+     */
+    private double borderSize;
+
     private final Map<UUID, Integer> creditsByPlayer = new HashMap<>();
     private final Map<UUID, Long> levelsByPlayer = new HashMap<>();
     private final Map<UUID, String> nameByPlayer = new HashMap<>();
@@ -124,8 +144,9 @@ public final class GameState {
         markDirty();
     }
 
+    /** Puts the clock back on, from a pause as well as from a finished or failed run. */
     public void resumeTimer() {
-        if (phase == Phase.PAUSED || phase == Phase.IDLE) {
+        if (phase != Phase.RUNNING) {
             resumedAtMillis = System.currentTimeMillis();
             phase = Phase.RUNNING;
             markDirty();
@@ -218,6 +239,33 @@ public final class GameState {
         markDirty();
     }
 
+    // ------------------------------------------------------- shared experience
+
+    public long teamExperience() {
+        return teamExperience;
+    }
+
+    public void teamExperience(long points) {
+        this.teamExperience = Math.max(0L, points);
+        markDirty();
+    }
+
+    // ---------------------------------------------------------------- border
+
+    /** Stored border size, or {@code 0} when the run has not set one yet. */
+    public double borderSize() {
+        return Math.max(0.0D, borderSize);
+    }
+
+    public boolean hasBorderSize() {
+        return borderSize > 0.0D;
+    }
+
+    public void borderSize(double size) {
+        this.borderSize = Math.max(0.0D, size);
+        markDirty();
+    }
+
     // ---------------------------------------------------------------- levels
 
     public long totalLevels() {
@@ -254,6 +302,8 @@ public final class GameState {
     public void resetProgress() {
         totalLevels = 0L;
         sharedCredits = 0;
+        teamExperience = 0L;
+        borderSize = 0.0D;
         levelsByPlayer.clear();
         creditsByPlayer.clear();
         accumulatedMillis = 0L;

@@ -98,6 +98,8 @@ public final class Storage {
         state.sharing(Sharing.parse(yaml.getString("sharing"), cfg.defaultSharing));
         state.totalLevels(yaml.getLong("total-levels", 0L));
         state.sharedCredits(yaml.getInt("shared-credits", 0));
+        state.teamExperience(yaml.getLong("team-experience", 0L));
+        state.borderSize(yaml.getDouble("border-size", 0.0D));
         state.elapsedSeconds(yaml.getLong("elapsed-seconds", 0L));
 
         String anchorWorld = yaml.getString("anchor.world");
@@ -236,6 +238,8 @@ public final class Storage {
         yaml.set("elapsed-seconds", state.elapsedSeconds());
         yaml.set("total-levels", state.totalLevels());
         yaml.set("shared-credits", state.sharedCredits());
+        yaml.set("team-experience", state.teamExperience());
+        yaml.set("border-size", state.borderSize());
         if (state.hasAnchor()) {
             yaml.set("anchor.world", state.anchorWorld());
             yaml.set("anchor.x", state.anchorX());

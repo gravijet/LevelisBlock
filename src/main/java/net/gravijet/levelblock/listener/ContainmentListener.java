@@ -2,6 +2,7 @@ package net.gravijet.levelblock.listener;
 
 import net.gravijet.levelblock.Mode;
 import net.gravijet.levelblock.config.Cfg;
+import net.gravijet.levelblock.core.BorderService;
 import net.gravijet.levelblock.core.ColumnSet;
 import net.gravijet.levelblock.core.GameService;
 import net.gravijet.levelblock.core.GameState;
@@ -41,6 +42,13 @@ import java.util.UUID;
  * from while the legal axis keeps its value, which produces the same wall-sliding as real
  * block collision.
  * <p>
+ * Smoothness is mostly about <em>not</em> talking to the client. Two rules do the work:
+ * a correction is only ever sent when it actually moves the player somewhere else
+ * ({@link #MIN_CORRECTION}), and the clamp target is stable, so pressing against the edge
+ * converges on one position instead of oscillating. The only time the player is pushed is
+ * after a real shove - a piston, an explosion, elytra speed - where a single soft nudge
+ * settles them instead of letting them slam into the same wall every tick.
+ * <p>
  * Diagonals get special care: a player cutting a corner touches three columns at once, so
  * the code picks the single column they are actually pushing hardest against, offers only
  * that one to {@link UnlockService}, and holds the other axis. One step never buys more
@@ -50,6 +58,13 @@ public final class ContainmentListener implements Listener {
 
     /** Keeps the player a hair inside the column so float rounding cannot push them out. */
     private static final double EDGE_INSET = 0.02D;
+    /** Below this the correction would not move anybody, so it is never sent. */
+    private static final double MIN_CORRECTION = 1.0E-4D;
+    /** Overshoot that walking cannot produce - this was a piston, a blast or elytra speed. */
+    private static final double SHOVE_DISTANCE = 0.6D;
+    /** Size of the soft nudge back inwards, in blocks per tick. Deliberately tiny. */
+    private static final double NUDGE = 0.1D;
+    private static final long NUDGE_COOLDOWN_MILLIS = 400L;
     private static final long BUMP_COOLDOWN_MILLIS = 350L;
 
     private final Cfg cfg;
@@ -57,15 +72,18 @@ public final class ContainmentListener implements Listener {
     private final RegionService regions;
     private final GameService game;
     private final UnlockService unlocks;
+    private final BorderService border;
     private final Map<UUID, Long> lastBump = new HashMap<>();
+    private final Map<UUID, Long> lastNudge = new HashMap<>();
 
     public ContainmentListener(Cfg cfg, GameState state, RegionService regions, GameService game,
-                               UnlockService unlocks) {
+                               UnlockService unlocks, BorderService border) {
         this.cfg = cfg;
         this.state = state;
         this.regions = regions;
         this.game = game;
         this.unlocks = unlocks;
+        this.border = border;
     }
 
     // ------------------------------------------------------------------- move
@@ -116,34 +134,51 @@ public final class ContainmentListener implements Listener {
         }
 
         Location corrected = to.clone();
-        boolean blocked = false;
+        boolean heldX = false;
+        boolean heldZ = false;
         if (!xOpen) {
             corrected.setX(clampInto(fx, to.getX()));
-            blocked = true;
+            heldX = true;
         }
         if (!zOpen) {
             corrected.setZ(clampInto(fz, to.getZ()));
-            blocked = true;
+            heldZ = true;
         }
         // Both neighbours open but the diagonal between them is not: hold the weaker axis
         // so the player slides along the edge instead of clipping through the corner.
-        if (!blocked && stepX != 0 && stepZ != 0) {
+        if (!heldX && !heldZ && stepX != 0 && stepZ != 0) {
             if (pushesX(from, to)) {
                 corrected.setZ(clampInto(fz, to.getZ()));
+                heldZ = true;
             } else {
                 corrected.setX(clampInto(fx, to.getX()));
+                heldX = true;
             }
-            blocked = true;
         }
         // Long steps (velocity, pistons, elytra) can jump clean over an open column.
         if (!columns.contains(corrected.getBlockX(), corrected.getBlockZ())) {
             corrected.setX(clampInto(fx, to.getX()));
             corrected.setZ(clampInto(fz, to.getZ()));
-            blocked = true;
+            heldX = true;
+            heldZ = true;
         }
-        if (blocked) {
-            event.setTo(corrected);
-            bump(player, corrected);
+        if (!heldX && !heldZ) {
+            return;
+        }
+
+        double offX = heldX ? Math.abs(to.getX() - corrected.getX()) : 0.0D;
+        double offZ = heldZ ? Math.abs(to.getZ() - corrected.getZ()) : 0.0D;
+        // Nothing actually moves - sending it would only cost the client a position reset.
+        if (offX < MIN_CORRECTION && offZ < MIN_CORRECTION) {
+            return;
+        }
+        event.setTo(corrected);
+        bump(player, corrected);
+
+        // Only a real shove gets a push back. Normal walking is left alone on purpose:
+        // fighting the player's own input every tick is what makes an edge feel broken.
+        if (Math.max(offX, offZ) >= SHOVE_DISTANCE) {
+            nudgeInwards(player, heldX ? stepX : 0, heldZ ? stepZ : 0);
         }
     }
 
@@ -166,6 +201,30 @@ public final class ContainmentListener implements Listener {
         return Math.max(blockCoord + EDGE_INSET, Math.min(blockCoord + 1.0D - EDGE_INSET, value));
     }
 
+    /**
+     * Bleeds off the momentum that carried the player into the wall and adds a very small
+     * inward drift. Without this a piston or a creeper keeps re-launching them into the
+     * same edge every tick, and every launch is another position correction.
+     */
+    private void nudgeInwards(Player player, int stepX, int stepZ) {
+        long now = System.currentTimeMillis();
+        Long previous = lastNudge.get(player.getUniqueId());
+        if (previous != null && now - previous < NUDGE_COOLDOWN_MILLIS) {
+            return;
+        }
+        lastNudge.put(player.getUniqueId(), now);
+
+        Vector velocity = player.getVelocity();
+        if (stepX != 0) {
+            velocity.setX(-stepX * NUDGE);
+        }
+        if (stepZ != 0) {
+            velocity.setZ(-stepZ * NUDGE);
+        }
+        // Falling stays untouched; only the horizontal shove is cancelled.
+        player.setVelocity(velocity);
+    }
+
     private void bump(Player player, Location at) {
         if (!cfg.bumpFeedback) {
             return;
@@ -181,11 +240,16 @@ public final class ContainmentListener implements Listener {
 
     // --------------------------------------------------------------- teleport
 
+    /**
+     * Teleports that would land outside are redirected to the nearest legal spot rather
+     * than cancelled. That is what makes ender pearls work: throw one over the edge and
+     * you land on the closest unlocked block instead of losing the pearl to a silent
+     * "nothing happened".
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
-        ColumnSet columns = activeColumns(player);
-        if (columns == null) {
+        if (!state.isActive() || game.isExempt(player)) {
             return;
         }
         // Portals are fixed up in PlayerListener; admin teleports must stay possible.
@@ -197,11 +261,26 @@ public final class ContainmentListener implements Listener {
             }
         }
         Location to = event.getTo();
+        if (to.getWorld() == null) {
+            return;
+        }
+        if (state.mode() == Mode.LEVEL_BORDER) {
+            if (border.isOutside(to)) {
+                event.setTo(border.nearestInside(to));
+                bump(player, player.getLocation());
+            }
+            return;
+        }
         ColumnSet target = regions.peek(to.getWorld());
         if (target == null || target.isEmpty() || target.contains(to.getBlockX(), to.getBlockZ())) {
             return;
         }
-        event.setCancelled(true);
+        Location inside = game.nearestInside(to.getWorld(), to);
+        if (inside == null) {
+            event.setCancelled(true);
+        } else {
+            event.setTo(inside);
+        }
         bump(player, player.getLocation());
     }
 
@@ -306,5 +385,6 @@ public final class ContainmentListener implements Listener {
 
     public void forget(UUID playerId) {
         lastBump.remove(playerId);
+        lastNudge.remove(playerId);
     }
 }

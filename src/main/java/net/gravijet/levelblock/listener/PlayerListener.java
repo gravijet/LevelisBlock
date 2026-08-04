@@ -8,8 +8,6 @@ import net.gravijet.levelblock.core.GameService;
 import net.gravijet.levelblock.core.GameState;
 import net.gravijet.levelblock.core.RegionService;
 import net.gravijet.levelblock.core.UnlockService;
-import net.gravijet.levelblock.hud.ActionBarService;
-import net.gravijet.levelblock.util.Keys;
 import net.gravijet.levelblock.world.WorldService;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -29,8 +27,6 @@ import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.OptionalLong;
-
 /** Session wiring: joins, deaths, respawns and dimension travel. */
 public final class PlayerListener implements Listener {
 
@@ -40,20 +36,18 @@ public final class PlayerListener implements Listener {
     private final GameService game;
     private final UnlockService unlocks;
     private final BorderService border;
-    private final ActionBarService actionBar;
     private final WorldService worlds;
     private final ContainmentListener containment;
 
     public PlayerListener(JavaPlugin plugin, GameState state, RegionService regions, GameService game,
-                          UnlockService unlocks, BorderService border, ActionBarService actionBar,
-                          WorldService worlds, ContainmentListener containment) {
+                          UnlockService unlocks, BorderService border, WorldService worlds,
+                          ContainmentListener containment) {
         this.plugin = plugin;
         this.state = state;
         this.regions = regions;
         this.game = game;
         this.unlocks = unlocks;
         this.border = border;
-        this.actionBar = actionBar;
         this.worlds = worlds;
         this.containment = containment;
     }
@@ -76,7 +70,6 @@ public final class PlayerListener implements Listener {
         Player player = event.getPlayer();
         unlocks.forget(player.getUniqueId());
         containment.forget(player.getUniqueId());
-        actionBar.forget(player.getUniqueId());
         game.bypassing().remove(player.getUniqueId());
     }
 
@@ -135,11 +128,16 @@ public final class PlayerListener implements Listener {
     // --------------------------------------------------------- shared XP pool
 
     /**
-     * Orbs only ever land on the player who picked them up. In {@link Sharing#SHARED} the
-     * whole team is meant to sit on the same value, so the pickup is mirrored one tick
-     * later - after the server has actually applied it.
+     * Orbs only ever land on the player who walked over them. In {@link Sharing#SHARED}
+     * the points belong to the team, so they are taken out of the individual pickup and
+     * added to the pool, which then hands the same total to everybody.
+     * <p>
+     * Redirecting the points instead of copying the picker's values afterwards is what
+     * makes the bar match as well as the level: the pool is a single number that level,
+     * progress and point count are all derived from, and two players collecting in the
+     * same tick both add to it instead of overwriting each other.
      */
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onExpChange(PlayerExpChangeEvent event) {
         if (state.sharing() != Sharing.SHARED || !state.isRunning() || game.isSyncing()) {
             return;
@@ -148,11 +146,12 @@ public final class PlayerListener implements Listener {
         if (!worlds.isGameWorld(player.getWorld())) {
             return;
         }
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            if (player.isOnline()) {
-                game.mirrorExperience(player);
-            }
-        });
+        int amount = event.getAmount();
+        if (amount <= 0) {
+            return;
+        }
+        event.setAmount(0);
+        game.addSharedExperience(player, amount);
     }
 
     // ------------------------------------------------------------ dimensions
@@ -174,14 +173,10 @@ public final class PlayerListener implements Listener {
         if (columns.contains(to.getBlockX(), to.getBlockZ())) {
             return;
         }
-        OptionalLong nearest = columns.nearest(to.getBlockX(), to.getBlockZ());
-        if (nearest.isEmpty()) {
-            return;
+        Location inside = game.nearestInside(to.getWorld(), to);
+        if (inside != null) {
+            event.setTo(inside);
         }
-        int x = Keys.unpackX(nearest.getAsLong());
-        int z = Keys.unpackZ(nearest.getAsLong());
-        int y = to.getWorld().getHighestBlockYAt(x, z) + 1;
-        event.setTo(new Location(to.getWorld(), x + 0.5D, y, z + 0.5D, to.getYaw(), to.getPitch()));
     }
 
     /**
@@ -204,5 +199,8 @@ public final class PlayerListener implements Listener {
         }
         game.ensureRegionFor(world, player.getLocation());
         game.rescue(player);
+        // The pool only reaches the challenge worlds, so somebody walking back in from a
+        // lobby has to be brought up to the team total again.
+        game.adoptSharedExperience(player);
     }
 }

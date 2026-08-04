@@ -76,6 +76,46 @@ public final class WorldService {
         return new Location(world, state.anchorX() + 0.5D, state.anchorY(), state.anchorZ() + 0.5D);
     }
 
+    /**
+     * The anchor nudged onto ground somebody can actually stand on. This is where
+     * {@code /timer resume} puts the team, so it must never drop them into a wall or
+     * into whatever grew over the start point while the run was paused.
+     */
+    public Location safeAnchor() {
+        World world = anchorWorld();
+        if (world == null) {
+            return null;
+        }
+        int x = state.anchorX();
+        int z = state.anchorZ();
+        int y = standableY(world, x, z, state.anchorY());
+        return new Location(world, x + 0.5D, y, z + 0.5D);
+    }
+
+    /**
+     * Lowest y at or above {@code wanted} where a player fits, falling back to the surface.
+     * Keeping the wanted height when it works means someone pushed out of a mine shaft
+     * lands back in the shaft instead of on the roof.
+     */
+    public static int standableY(World world, int x, int z, int wanted) {
+        int min = world.getMinHeight() + 1;
+        int max = world.getMaxHeight() - 2;
+        int start = Math.max(min, Math.min(max, wanted));
+        for (int y = start; y <= Math.min(max, start + 8); y++) {
+            if (fits(world, x, y, z)) {
+                return y;
+            }
+        }
+        return Math.max(min, Math.min(max, world.getHighestBlockYAt(x, z) + 1));
+    }
+
+    /** Two blocks of room with something solid underneath. */
+    private static boolean fits(World world, int x, int y, int z) {
+        return world.getBlockAt(x, y, z).isPassable()
+                && world.getBlockAt(x, y + 1, z).isPassable()
+                && world.getBlockAt(x, y - 1, z).getType().isSolid();
+    }
+
     // ------------------------------------------------------------ spawn setup
 
     /**

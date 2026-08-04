@@ -1,10 +1,11 @@
 # ============================================================================
-#  LevelBlock  -  by GraviJet
+#  Challenge  -  by GraviJet
 #
 #  Zwei Spielmodi:
 #    LEVEL_BLOCK  : Ihr startet auf einer 3x3 Flaeche. Jedes XP-Level gibt
 #                   Guthaben. Lauf einfach gegen die rote Linie, dann wird
 #                   der Block davor freigeschaltet - kein Item, kein Menue.
+#                   Ein Kauf kostet Guthaben UND das XP-Level selbst.
 #    LEVEL_BORDER : Jedes XP-Level vergroessert die Worldborder.
 #
 #  Die Challenge laeuft dort, wo jemand /timer start benutzt. Es wird KEINE
@@ -13,7 +14,9 @@
 #  neu generiert.
 #
 #  Befehle:
-#    /timer start | pause | resume | reset | set <zeit>
+#    /timer start | pause | resume | set <zeit>
+#    /blocks      freigeschaltete Bloecke und Guthaben
+#    /border      aktuelle Bordergroesse (und /border set <groesse>)
 #    /lb          alles andere (auch /levelblock und /levelborder)
 #    /reset       alle Welten loeschen und neu generieren
 #
@@ -23,6 +26,10 @@
 #  Farben/Texte nutzen MiniMessage: https://docs.advntr.dev/minimessage/format
 # ============================================================================
 
+# Wird vom Plugin gepflegt. Nicht anfassen - daran erkennt es, ob eine
+# aeltere config.yml an die aktuelle Fassung angeglichen werden muss.
+config-version: 2
+
 # LEVEL_BLOCK oder LEVEL_BORDER. Zur Laufzeit: /lb mode <modus>
 mode: LEVEL_BLOCK
 
@@ -30,7 +37,7 @@ general:
   # Wie viele Sekunden zwischen automatischen Speichervorgaengen.
   autosave-seconds: 60
   # Praefix vor allen Chat-Nachrichten.
-  prefix: "<gradient:#00E5FF:#7C4DFF><bold>LevelBlock</bold></gradient> <dark_gray>|</dark_gray> "
+  prefix: "<gradient:#00E5FF:#7C4DFF><bold>Challenge</bold></gradient> <dark_gray>|</dark_gray> "
   # Spieler im Kreativmodus duerfen die Begrenzung ignorieren.
   creative-bypasses: true
   # Zuschauer (Spectator) duerfen die Begrenzung ignorieren.
@@ -49,7 +56,7 @@ start:
   force-survival: true
   # Untergrund der Startflaeche begehbar machen (Wasser/Lava/Luft auffuellen).
   prepare-platform: true
-  platform-material: STONE
+  platform-material: DIRT
   # So viele Sekunden nach dem Start kann niemand Schaden nehmen. Schuetzt
   # vor dem Start-Feuerwerk und vor einem Pech-Spawn. 0 = aus.
   invulnerable-seconds: 6
@@ -59,7 +66,7 @@ start:
   # Challenge kaputtmachen, wenn man genau auf dem Weltspawn startet. Darum
   # wird der Weltspawn beim Start um so viele Bloecke weggeschoben.
   # Respawns landen trotzdem am Startpunkt. 0 = Weltspawn nicht anfassen.
-  spawn-point-distance: 512
+  spawn-point-distance: 50000
 
 timer:
   # COUNT_UP = hochzaehlen, COUNT_DOWN = runterzaehlen (Spiel endet bei 0).
@@ -91,6 +98,9 @@ unlock:
   # den Rand. Es gibt bewusst keinen Cooldown: pro Schritt kann sowieso nur
   # ein einziger Block gekauft werden.
   sneak-blocks: true
+  # Ein Kauf zieht zusaetzlich zum Guthaben auch die XP-Level ab, die das
+  # Guthaben eingebracht haben. Der Spieler faengt also wieder bei 0 an.
+  take-levels: true
   # Freischaltungen im Chat ankuendigen.
   broadcast: false
 
@@ -116,7 +126,8 @@ barrier:
 # nicht der Welt selbst - dadurch spawnen und laufen Mobs weiterhin
 # ueberall, nur die Spieler kommen nicht raus.
 border:
-  # Groesse der Border zu Spielbeginn.
+  # Groesse der Border zu Spielbeginn. Jederzeit aenderbar mit
+  # /border set <groesse>.
   start-size: 3.0
   # Zuwachs pro XP-Level in Bloecken (Durchmesser).
   blocks-per-level: 1.0
@@ -128,24 +139,22 @@ border:
   # kleinen Border waere der Bildschirm dauerhaft rot, darum standardmaessig 0.
   warning-distance: 0
 
-# Der Timer ueber der Hotbar. Es gibt weder Scoreboard noch Bossbar.
+# Der Timer ueber der Hotbar. In der Actionbar steht ausschliesslich die
+# Zeit - kein Guthaben, keine Bloecke, keine Meldungen. Alles andere gibt es
+# ueber /blocks, /border und /lb.
 actionbar:
   enabled: true
-  # Alle X Ticks aktualisieren (kleiner = fluessigerer Farbverlauf).
+  # Alle X Ticks aktualisieren.
   refresh-ticks: 4
-  # Farben des Verlaufs, mindestens zwei.
+  # Farben des Verlaufs, mindestens zwei. Standard ist derselbe Verlauf wie
+  # beim Praefix.
   gradient:
     - "#00E5FF"
     - "#7C4DFF"
-    - "#FF3D71"
-  # Der Verlauf wandert durch den Text.
-  animate: true
+  # Der Verlauf wandert durch den Text. Aus = steht wie der Praefix.
+  animate: false
   animation-speed: 0.012
   bold: true
-  # Text hinter der Zeit. Platzhalter: %credits% %blocks% %levels% %border%
-  #                                    %mode% %xpmode% %status% %players%
-  suffix-block: "<dark_gray> | </dark_gray><gray>Guthaben</gray> <white>%credits%</white><dark_gray> | </dark_gray><gray>Bloecke</gray> <white>%blocks%</white>"
-  suffix-border: "<dark_gray> | </dark_gray><gray>Border</gray> <white>%border%x%border%</white><dark_gray> | </dark_gray><gray>Level</gray> <white>%levels%</white>"
 
 effects:
   # Akzentfarbe fuer Animationen.
@@ -175,6 +184,7 @@ messages:
   players-only: "<red>Das geht nur als Spieler.</red>"
   game-not-running: "<red>Die Challenge laeuft gerade nicht.</red>"
   game-already-running: "<red>Die Challenge laeuft bereits.</red>"
+  game-not-started: "<red>Es wurde noch keine Challenge gestartet.</red>"
   game-started: "<green>Die Challenge wurde gestartet!</green>"
   game-stopped: "<yellow>Die Challenge wurde gestoppt.</yellow>"
   game-paused: "<yellow>Die Challenge wurde pausiert.</yellow>"
@@ -189,6 +199,7 @@ messages:
   not-enough-credits: "<red>Nicht genug Guthaben!</red> <gray>Benoetigt:</gray> <white>%cost%</white> <dark_gray>|</dark_gray> <gray>Du hast:</gray> <white>%credits%</white>"
   unlocked-broadcast: "<aqua>%player%</aqua> <gray>hat einen Block freigeschaltet.</gray> <dark_gray>Insgesamt:</dark_gray> <white>%blocks%</white>"
   border-grown: "<aqua>%player%</aqua> <gray>hat die Border auf</gray> <white>%size%x%size%</white> <gray>vergroessert.</gray>"
+  border-set: "<green>Border auf <white>%size%x%size%</white> gesetzt.</green>"
   credits-own: "<gray>Dein Guthaben:</gray> <aqua>%credits%</aqua>"
   credits-changed: "<green>Guthaben von <white>%player%</white> ist jetzt <white>%credits%</white>.</green>"
   timer-set: "<green>Timer auf <white>%time%</white> gesetzt.</green>"
@@ -200,13 +211,16 @@ messages:
   config-set: "<green><white>%key%</white> auf <white>%value%</white> gesetzt.</green>"
   reset-game: "<yellow>Das Spiel wurde zurueckgesetzt.</yellow>"
   reset-world-confirm: "<red>Achtung!</red> <gray>Das loescht ALLE Welten unwiderruflich und stoppt den Server.</gray><newline><gray>Bestaetige mit</gray> <white>/reset confirm</white>"
-  spawn-moved: "<gray>Weltspawn auf</gray> <white>%x% / %z%</white> <gray>verschoben, damit im Spielgebiet Mobs spawnen.</gray>"
   reset-world-start: "<yellow>Alle Welten werden geloescht. Der Server startet gleich neu...</yellow>"
   reset-world-manual: "<yellow>Reset vorbereitet.</yellow> <gray>Stoppe den Server jetzt selbst - beim Herunterfahren werden die Welten geloescht.</gray>"
-  reset-kick: "<gradient:#00E5FF:#7C4DFF><bold>LevelBlock</bold></gradient><newline><gray>Die Welten werden neu generiert.</gray><newline><white>Komm gleich wieder rein!</white>"
+  reset-kick: "<gradient:#00E5FF:#7C4DFF><bold>Challenge</bold></gradient><newline><gray>Die Welten werden neu generiert.</gray><newline><white>Komm gleich wieder rein!</white>"
   bypass-on: "<green>Bypass aktiviert.</green> <gray>Du ignorierst die Begrenzung.</gray>"
   bypass-off: "<yellow>Bypass deaktiviert.</yellow>"
   reloaded: "<green>Konfiguration neu geladen.</green>"
   top-header: "<gray>Meiste gesammelte Level:</gray>"
   top-entry: "<dark_gray>%rank%.</dark_gray> <white>%player%</white> <dark_gray>-</dark_gray> <aqua>%levels%</aqua>"
   top-empty: "<gray>Noch keine Level gesammelt.</gray>"
+  # Uebersicht von /blocks. %blocks% %credits% %cost% %levels% %players%
+  blocks-info: "<dark_gray>▎</dark_gray> <gray>Freigeschaltet</gray> <white>%blocks%</white> <gray>Bloecke</gray><newline><dark_gray>▎</dark_gray> <gray>Dein Guthaben</gray> <white>%credits%</white><newline><dark_gray>▎</dark_gray> <gray>Naechster Block</gray> <white>%cost%</white> <gray>Level</gray><newline><dark_gray>▎</dark_gray> <gray>Gesammelte Level</gray> <white>%levels%</white>"
+  # Uebersicht von /border. %size% %per% %levels% %next%
+  border-info: "<dark_gray>▎</dark_gray> <gray>Groesse</gray> <white>%size% x %size%</white><newline><dark_gray>▎</dark_gray> <gray>Pro Level</gray> <white>+%per%</white><newline><dark_gray>▎</dark_gray> <gray>Naechstes Level</gray> <white>%next% x %next%</white><newline><dark_gray>▎</dark_gray> <gray>Gesammelte Level</gray> <white>%levels%</white>"

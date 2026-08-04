@@ -4,7 +4,6 @@ import net.gravijet.levelblock.Mode;
 import net.gravijet.levelblock.config.Cfg;
 import net.gravijet.levelblock.fx.AnimationService;
 import net.gravijet.levelblock.fx.Fx;
-import net.gravijet.levelblock.hud.ActionBarService;
 import net.gravijet.levelblock.util.Msg;
 import net.kyori.adventure.text.Component;
 import org.bukkit.World;
@@ -22,30 +21,36 @@ import java.util.UUID;
  * column the player is pushing against and offers it here, so a player who clips a corner
  * still only ever pays for - and opens - one block.
  * <p>
- * There is deliberately no rate limit either. One move event can only ever buy one column,
- * so walking is already the only throttle there is: keep running into the edge and the area
+ * A purchase costs the credit <em>and</em> the experience level behind it, so the XP bar
+ * really starts over after every block instead of quietly carrying on upwards.
+ * <p>
+ * There is deliberately no rate limit. One move event can only ever buy one column, so
+ * walking is already the only throttle there is: keep running into the edge and the area
  * keeps opening up, exactly as fast as you can walk.
  */
 public final class UnlockService {
 
-    private static final long DENY_FEEDBACK_MILLIS = 1200L;
+    /** Audio feedback is immediate; the text behind it only repeats rarely. */
+    private static final long DENY_SOUND_MILLIS = 1_200L;
+    private static final long DENY_TEXT_MILLIS = 8_000L;
 
     private final Cfg cfg;
     private final GameState state;
     private final RegionService regions;
+    private final GameService game;
     private final AnimationService animations;
-    private final ActionBarService actionBar;
     private final Msg msg;
 
-    private final Map<UUID, Long> lastDeny = new HashMap<>();
+    private final Map<UUID, Long> lastDenySound = new HashMap<>();
+    private final Map<UUID, Long> lastDenyText = new HashMap<>();
 
-    public UnlockService(Cfg cfg, GameState state, RegionService regions, AnimationService animations,
-                         ActionBarService actionBar, Msg msg) {
+    public UnlockService(Cfg cfg, GameState state, RegionService regions, GameService game,
+                         AnimationService animations, Msg msg) {
         this.cfg = cfg;
         this.state = state;
         this.regions = regions;
+        this.game = game;
         this.animations = animations;
-        this.actionBar = actionBar;
         this.msg = msg;
     }
 
@@ -86,6 +91,7 @@ public final class UnlockService {
             deny(player, cost);
             return false;
         }
+        game.chargeLevels(player, cost);
         unlockColumn(world, x, z);
 
         Fx.play(player, Fx.BEACON_POWER, cfg.volume, 1.6F);
@@ -104,14 +110,20 @@ public final class UnlockService {
     private void deny(Player player, int cost) {
         UUID id = player.getUniqueId();
         long now = System.currentTimeMillis();
-        Long previous = lastDeny.get(id);
-        if (previous != null && now - previous < DENY_FEEDBACK_MILLIS) {
-            return;
+
+        Long lastSound = lastDenySound.get(id);
+        if (lastSound == null || now - lastSound >= DENY_SOUND_MILLIS) {
+            lastDenySound.put(id, now);
+            Fx.play(player, Fx.NO, cfg.volume * 0.7F, 0.8F);
         }
-        lastDeny.put(id, now);
-        actionBar.flash(player, msg.of("not-enough-credits",
-                "cost", cost, "credits", state.credits(id)), DENY_FEEDBACK_MILLIS);
-        Fx.play(player, Fx.NO, cfg.volume * 0.7F, 0.8F);
+        // The action bar belongs to the timer, so the reason goes to chat - rarely, because
+        // pressing against the edge without credits happens for seconds at a time.
+        Long lastText = lastDenyText.get(id);
+        if (lastText == null || now - lastText >= DENY_TEXT_MILLIS) {
+            lastDenyText.put(id, now);
+            player.sendMessage(msg.prefixed("not-enough-credits",
+                    "cost", cost, "credits", state.credits(id)));
+        }
     }
 
     /** Unlocks a column without charging; used by the flow above and by admin commands. */
@@ -126,6 +138,7 @@ public final class UnlockService {
     }
 
     public void forget(UUID playerId) {
-        lastDeny.remove(playerId);
+        lastDenySound.remove(playerId);
+        lastDenyText.remove(playerId);
     }
 }

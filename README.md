@@ -5,22 +5,29 @@ keine Bossbar – nur ein Timer in der Actionbar und Befehle.
 
 **Level = Block** – ihr startet auf einer 3×3-Fläche. Jedes XP-Level gibt Guthaben. Lauf
 einfach gegen die rote Linie am Boden, dann wird der Block davor freigeschaltet. Kein Item,
-kein Menü, und pro Schritt immer nur genau ein Block.
+kein Menü, und pro Schritt immer nur genau ein Block. Ein Kauf kostet das Guthaben **und**
+das XP-Level dahinter – der Balken fängt danach wieder bei null an.
 
-**Level = Border** – jedes XP-Level vergrößert die Worldborder. Die Level aller Spieler
-zählen zusammen.
+**Level = Border** – jedes XP-Level vergrößert die Worldborder. Sie startet bei 3×3 und
+lässt sich jederzeit mit `/border set <größe>` von Hand korrigieren. Die Level aller
+Spieler zählen zusammen.
 
 Ein Tod beendet die Challenge für alle. Der Gestorbene behält sein komplettes Inventar,
-alle Spieler kommen in den Zuschauermodus.
+alle Spieler kommen in den Zuschauermodus. Mit `/timer resume` geht es weiter: alle kommen
+zurück in den Überlebensmodus und werden zum Startpunkt teleportiert.
 
 ## Befehle
 
 | Befehl | Was es macht |
 | --- | --- |
 | `/timer start` | Challenge dort starten, wo du stehst |
-| `/timer pause` / `resume` | Uhr anhalten und weiterlaufen lassen |
+| `/timer pause` | Uhr anhalten |
+| `/timer resume` | Weiterspielen – alle in Survival und zurück zum Startpunkt, auch nach einem Tod |
 | `/timer reset` | Fortschritt und Zeit zurücksetzen |
 | `/timer set <zeit>` | Zeit setzen, z. B. `90`, `10m`, `1:30:00` |
+| `/blocks` | Freigeschaltete Blöcke, Guthaben und Kosten des nächsten Blocks |
+| `/border` | Aktuelle Bordergröße und was das nächste Level bringt |
+| `/border set <größe>` | Border von Hand setzen (Admin) |
 | `/lb` | Status und eigenes Guthaben |
 | `/lb top` | Rangliste der gesammelten Level |
 | `/lb stop` | Challenge beenden |
@@ -44,7 +51,13 @@ Rechte: `levelblock.play` (Standard: alle), `levelblock.admin` und `levelblock.b
 * `SHARED` – alle haben immer exakt gleich viel Erfahrung und teilen ein gemeinsames
   Guthaben.
 
-## Zwei Dinge, die man wissen sollte
+## Die Actionbar
+
+Über der Hotbar steht ausschließlich der Timer, im selben Farbverlauf wie der Chat-Prefix –
+in jeder Welt, ohne Zahlen daneben und ohne Plugin-Meldungen, die ihn überschreiben. Alles
+andere gibt es auf Zuruf über `/blocks`, `/border` und `/lb`.
+
+## Drei Dinge, die man wissen sollte
 
 **Der Weltspawn wird verschoben.** Minecraft lässt im Umkreis von 24 Blöcken um den
 Weltspawn grundsätzlich nichts spawnen, und `spawn-protection` aus der `server.properties`
@@ -52,6 +65,11 @@ verbietet Nicht-Ops dort das Bauen. Wer genau auf dem Weltspawn startet, hätte 
 Mobs noch die Möglichkeit, Blöcke abzubauen. Darum schiebt `/timer start` den Weltspawn um
 `start.spawn-point-distance` Blöcke (Standard 512) weg. Respawns landen trotzdem am
 Startpunkt. Mit `0` bleibt der Weltspawn unangetastet.
+
+**Weltordner in 1.26.** Seit 1.26 liegen die Dimensionen *in* der Welt
+(`world/dimensions/minecraft/overworld`) statt daneben. Der Reset löst den gemeldeten
+Ordner deshalb erst auf seinen Wurzelordner auf – sonst hält er jede Welt für „außerhalb
+des Weltordners" und überspringt sie.
 
 **`/reset confirm` stoppt den Server.** Gelöscht wird beim Herunterfahren, weil der Server
 vorher noch Dateien offen hat; im selben Schritt wird ein neuer Zufalls-Seed in die

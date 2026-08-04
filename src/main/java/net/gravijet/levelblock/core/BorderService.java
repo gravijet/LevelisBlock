@@ -19,13 +19,17 @@ import java.util.List;
  * world's own one. That is what keeps the challenge off the rest of the world: the level
  * border stays at its vanilla size, so mobs spawn and walk outside the ring exactly as
  * they normally would, while the players are the only ones who cannot leave it.
+ * <p>
+ * The size lives in {@link GameState}, not in a formula over the level count. Levels grow
+ * it and {@code /border set} overwrites it, and both stick - a run that was widened by an
+ * admin does not snap back the moment somebody levels up.
  */
 public final class BorderService {
 
     /** Damage is off - the client already refuses to walk through, so it would only be noise. */
     private static final double NO_DAMAGE = 0.0D;
     /** How far a player may drift past the border before they get pulled back. */
-    private static final double SLACK = 1.5D;
+    private static final double SLACK = 0.5D;
 
     private final Cfg cfg;
     private final GameState state;
@@ -41,13 +45,28 @@ public final class BorderService {
         this.animations = animations;
     }
 
+    /** The size in effect right now, falling back to the configured start size. */
     public double targetSize() {
-        double size = cfg.borderStartSize + state.totalLevels() * cfg.borderPerLevel;
+        double size = state.hasBorderSize() ? state.borderSize() : cfg.borderStartSize;
+        return clampSize(size);
+    }
+
+    /** Size after the next level - what {@code /border} shows as the next step. */
+    public double nextSize() {
+        return clampSize(targetSize() + cfg.borderPerLevel);
+    }
+
+    private double clampSize(double size) {
         return Math.min(cfg.borderMaxSize, Math.max(1.0D, size));
     }
 
     public boolean enabled() {
         return state.mode() == Mode.LEVEL_BORDER && state.isActive() && state.hasAnchor();
+    }
+
+    /** Puts the border back to the configured start size; called when a run begins. */
+    public void reset() {
+        state.borderSize(clampSize(cfg.borderStartSize));
     }
 
     // ------------------------------------------------------------------ apply
@@ -83,13 +102,24 @@ public final class BorderService {
         player.setWorldBorder(border());
     }
 
-    /** Called when a level is gained in border mode. */
-    public void grow() {
-        apply(true);
+    /** Called when levels are gained in border mode. */
+    public void grow(int levels) {
+        if (levels <= 0) {
+            return;
+        }
+        setSize(targetSize() + cfg.borderPerLevel * levels, true);
+    }
+
+    /** Admin override from {@code /border set}. */
+    public void setSize(double size, boolean animated) {
+        double clamped = clampSize(size);
+        state.borderSize(clamped);
+        apply(animated);
+
         World world = worlds.anchorWorld();
         Location anchor = worlds.anchor();
-        if (world != null && anchor != null) {
-            animations.borderGrow(world, anchor, targetSize());
+        if (animated && world != null && anchor != null) {
+            animations.borderGrow(world, anchor, clamped);
         }
     }
 
@@ -146,6 +176,31 @@ public final class BorderService {
         corrected.setX(clamp(x, centerX - half + inset, centerX + half - inset));
         corrected.setZ(clamp(z, centerZ - half + inset, centerZ + half - inset));
         player.teleport(corrected);
+    }
+
+    /** Nearest spot inside the ring, used to redirect ender pearls and portals. */
+    public Location nearestInside(Location outside) {
+        double half = targetSize() / 2.0D;
+        double centerX = state.anchorX() + 0.5D;
+        double centerZ = state.anchorZ() + 0.5D;
+        double inset = Math.min(0.5D, half / 4.0D);
+
+        Location corrected = outside.clone();
+        corrected.setX(clamp(outside.getX(), centerX - half + inset, centerX + half - inset));
+        corrected.setZ(clamp(outside.getZ(), centerZ - half + inset, centerZ + half - inset));
+        return corrected;
+    }
+
+    /** {@code true} when the position sits outside the ring. */
+    public boolean isOutside(Location at) {
+        if (!enabled() || !worlds.isGameWorld(at.getWorld())) {
+            return false;
+        }
+        double half = targetSize() / 2.0D;
+        double centerX = state.anchorX() + 0.5D;
+        double centerZ = state.anchorZ() + 0.5D;
+        return at.getX() < centerX - half || at.getX() > centerX + half
+                || at.getZ() < centerZ - half || at.getZ() > centerZ + half;
     }
 
     private static double clamp(double value, double min, double max) {

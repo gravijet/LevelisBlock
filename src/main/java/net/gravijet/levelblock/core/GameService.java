@@ -10,6 +10,7 @@ import net.gravijet.levelblock.store.Storage;
 import net.gravijet.levelblock.util.Keys;
 import net.gravijet.levelblock.util.Msg;
 import net.gravijet.levelblock.util.Text;
+import net.gravijet.levelblock.util.Xp;
 import net.gravijet.levelblock.world.WorldService;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.title.Title;
@@ -29,7 +30,6 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -53,7 +53,6 @@ public final class GameService {
     private final WorldService worlds;
     private final BorderService border;
     private final AnimationService animations;
-    private final ActionBarService actionBar;
     private final Storage storage;
     private final Msg msg;
 
@@ -63,12 +62,13 @@ public final class GameService {
 
     private BukkitTask countdownTask;
     private boolean frozen;
+    /** Wall clock until which nothing may hurt anyone, e.g. right after a start or resume. */
+    private long graceUntilMillis;
     /** Guards the XP mirroring in {@link Sharing#SHARED} against feeding back into itself. */
     private boolean syncing;
 
     public GameService(JavaPlugin plugin, Cfg cfg, GameState state, RegionService regions, WorldService worlds,
-                       BorderService border, AnimationService animations, ActionBarService actionBar,
-                       Storage storage, Msg msg) {
+                       BorderService border, AnimationService animations, Storage storage, Msg msg) {
         this.plugin = plugin;
         this.cfg = cfg;
         this.state = state;
@@ -76,7 +76,6 @@ public final class GameService {
         this.worlds = worlds;
         this.border = border;
         this.animations = animations;
-        this.actionBar = actionBar;
         this.storage = storage;
         this.msg = msg;
     }
@@ -102,12 +101,16 @@ public final class GameService {
         return bypassing.contains(player.getUniqueId());
     }
 
-    /** Grace window around the start where nothing - fireworks included - may hurt anyone. */
+    /** Grace window around a start or resume where nothing - fireworks included - may hurt. */
     public boolean isProtected() {
         if (state.phase() == GameState.Phase.COUNTDOWN) {
             return true;
         }
-        return state.isRunning() && state.elapsedMillis() < cfg.invulnerableMillis();
+        return state.isRunning() && System.currentTimeMillis() < graceUntilMillis;
+    }
+
+    private void startGrace() {
+        graceUntilMillis = System.currentTimeMillis() + cfg.invulnerableMillis();
     }
 
     // ------------------------------------------------------------------ start
@@ -124,22 +127,19 @@ public final class GameService {
         resetProgressInternal();
         state.anchor(world.getName(), spawn.getBlockX(), spawn.getBlockY(), spawn.getBlockZ());
 
-        Location movedSpawn = worlds.relocateWorldSpawn(world, spawn.getBlockX(), spawn.getBlockZ());
-        if (movedSpawn != null) {
-            plugin.getLogger().info("Weltspawn auf " + movedSpawn.getBlockX() + "/" + movedSpawn.getBlockZ()
-                    + " verschoben, damit im Spielgebiet Mobs spawnen koennen und der "
-                    + "spawn-protection-Radius dort nicht greift.");
-            msg.send(initiator, "spawn-moved",
-                    "x", movedSpawn.getBlockX(), "z", movedSpawn.getBlockZ());
-        }
+        // Silently, on purpose: the spawn point only moves so mobs can spawn and so
+        // spawn-protection does not lock the play area, which is nothing a player has to
+        // read about. See WorldService#relocateWorldSpawn for why it has to happen at all.
+        worlds.relocateWorldSpawn(world, spawn.getBlockX(), spawn.getBlockZ());
         worlds.preparePlatform(world, spawn.getBlockX(), spawn.getBlockZ(), cfg.startAreaSize);
         if (state.mode() == Mode.LEVEL_BLOCK) {
             regions.seedArea(world, spawn.getBlockX(), spawn.getBlockZ(), cfg.startAreaSize);
         }
-        warnAboutSpawnBlockers(initiator, world);
+        logSpawnBlockers(world);
 
         state.phase(GameState.Phase.COUNTDOWN);
         frozen = cfg.freezeDuringCountdown;
+        border.reset();
         preparePlayers(spawn);
         border.apply(false);
         runCountdown(world, spawn);
@@ -147,14 +147,14 @@ public final class GameService {
     }
 
     /**
-     * Points out server settings that stop mobs from spawning. The plugin deliberately does
-     * not change any of them - they are the server owner's call - but a challenge in which
-     * nothing ever spawns looks like a broken plugin, so it says so out loud instead.
+     * Points out server settings that stop mobs from spawning. Console only - the server
+     * owner can act on these, a player cannot, so it stays out of the chat. The plugin
+     * deliberately changes none of them; they are the owner's call.
      */
-    private void warnAboutSpawnBlockers(Player initiator, World world) {
-        List<String> problems = new ArrayList<>();
+    private void logSpawnBlockers(World world) {
+        List<String> problems = new java.util.ArrayList<>();
         if (world.getDifficulty() == Difficulty.PEACEFUL) {
-            problems.add("Schwierigkeit steht auf PEACEFUL - es spawnen keine Monster");
+            problems.add("Schwierigkeit steht auf PEACEFUL");
         }
         if (!world.getAllowMonsters()) {
             problems.add("spawn-monsters=false in der server.properties");
@@ -165,13 +165,8 @@ public final class GameService {
         if (Boolean.FALSE.equals(world.getGameRuleValue(GameRules.SPAWN_MONSTERS))) {
             problems.add("Gameregel spawnMonsters ist aus");
         }
-        if (problems.isEmpty()) {
-            return;
-        }
-        for (String problem : problems) {
-            plugin.getLogger().warning("Achtung: " + problem + ".");
-            initiator.sendMessage(Text.mm("<gold>Achtung:</gold> <gray>%problem%.</gray>",
-                    "problem", problem));
+        if (!problems.isEmpty()) {
+            plugin.getLogger().warning("Es spawnen keine Monster: " + String.join(", ", problems) + ".");
         }
     }
 
@@ -212,6 +207,7 @@ public final class GameService {
     private void beginRun(World world, Location spawn) {
         frozen = false;
         state.startTimer();
+        startGrace();
         border.apply(false);
 
         Title title = Title.title(
@@ -250,6 +246,11 @@ public final class GameService {
             state.credits(player.getUniqueId(), cfg.startingCredits);
             player.teleport(spawn);
         }
+        if (state.sharing() == Sharing.SHARED) {
+            // Seed the pool before the first orb drops, so nobody starts out of step.
+            state.teamExperience(cfg.resetPlayers ? 0L : highestExperience());
+            pushSharedExperience();
+        }
     }
 
     // ------------------------------------------------------- stop/pause/resume
@@ -276,12 +277,46 @@ public final class GameService {
         storage.saveAll(true);
     }
 
+    /**
+     * Picks the run back up - from a pause as well as from a finished or failed one.
+     * <p>
+     * Everybody goes back to survival and gets teleported to the start point. After a
+     * death that is the whole point: the team is sitting in spectator mode spread across
+     * the map, and {@code /timer resume} is what puts them back into the game together.
+     */
     public void resume(CommandSender initiator) {
-        if (state.phase() != GameState.Phase.PAUSED) {
-            msg.send(initiator, "game-not-running");
+        if (!state.hasAnchor()) {
+            msg.send(initiator, "game-not-started");
             return;
         }
+        if (state.isRunning()) {
+            msg.send(initiator, "game-already-running");
+            return;
+        }
+        cancelCountdown();
+        deathSpots.clear();
         state.resumeTimer();
+        startGrace();
+        border.apply(false);
+
+        Location spot = worlds.safeAnchor();
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            player.setGameMode(GameMode.SURVIVAL);
+            player.setFireTicks(0);
+            player.setFallDistance(0.0F);
+            if (spot != null) {
+                // Keep the view direction - being spun around north on every resume is
+                // disorienting for no reason.
+                Location target = spot.clone();
+                target.setYaw(player.getLocation().getYaw());
+                target.setPitch(player.getLocation().getPitch());
+                player.teleport(target);
+            }
+            border.attach(player);
+        }
+        // Everybody moved worlds and game modes just now - hand out the pool again so the
+        // team comes back in step.
+        pushSharedExperience();
         msg.broadcast("game-resumed");
         storage.saveAll(true);
     }
@@ -393,9 +428,9 @@ public final class GameService {
 
     // ------------------------------------------------------------ level payout
 
-    /** Called when a player's XP level goes up. */
-    public void grantLevels(Player player, int amount) {
-        if (syncing || amount <= 0 || !state.isRunning()) {
+    /** What a gained level is worth - credits in block mode, border growth in border mode. */
+    private void awardLevels(Player player, int amount) {
+        if (amount <= 0 || !state.isRunning()) {
             return;
         }
         state.addLevels(player.getUniqueId(), player.getName(), amount);
@@ -407,37 +442,101 @@ public final class GameService {
                 Fx.play(player, Fx.ORB_PICKUP, cfg.volume, 1.5F);
             }
         } else {
-            border.grow();
+            border.grow(amount);
             msg.broadcast("border-grown",
                     "player", player.getName(),
                     "size", ActionBarService.formatSize(border.targetSize()));
         }
-        if (state.sharing() == Sharing.SHARED) {
-            mirrorExperience(player);
-        }
     }
 
     /**
-     * Copies one player's experience onto everybody else. Used by {@link Sharing#SHARED},
-     * where the whole team is meant to always sit on exactly the same XP.
+     * A player's own level went up. Only used by {@link Sharing#INDIVIDUAL} - the shared
+     * pool counts its levels off the pool total instead, in
+     * {@link #addSharedExperience}.
      */
-    public void mirrorExperience(Player source) {
-        if (syncing || state.sharing() != Sharing.SHARED) {
+    public void grantLevels(Player player, int amount) {
+        if (syncing || state.sharing() == Sharing.SHARED) {
             return;
         }
-        int level = source.getLevel();
-        float progress = source.getExp();
+        awardLevels(player, amount);
+    }
+
+    /**
+     * Takes the experience a purchase cost back off the player.
+     * <p>
+     * Buying a block is meant to cost the level itself, not only the credit the level
+     * produced - otherwise the XP bar keeps climbing while blocks are being bought and the
+     * next level is always cheaper than the last. With {@link Sharing#SHARED} the whole
+     * team pays, because the whole team owns the pool.
+     */
+    public void chargeLevels(Player buyer, int credits) {
+        if (!cfg.takeLevels || credits <= 0) {
+            return;
+        }
+        int levels = cfg.creditsPerLevel > 0
+                ? (int) Math.ceil(credits / (double) cfg.creditsPerLevel)
+                : credits;
+        if (levels <= 0) {
+            return;
+        }
+        if (state.sharing() == Sharing.SHARED) {
+            // Take it off the pool, then hand the reduced total to everybody at once.
+            long total = state.teamExperience();
+            int target = Math.max(0, Xp.levelOf(total) - levels);
+            state.teamExperience(Xp.total(target, Xp.progressOf(total)));
+            pushSharedExperience();
+            return;
+        }
+        // The level change fires PlayerLevelChangeEvent; the guard keeps that from being
+        // read back as earned progress.
         syncing = true;
         try {
-            for (Player other : Bukkit.getOnlinePlayers()) {
-                if (other.equals(source) || !worlds.isGameWorld(other.getWorld())) {
-                    continue;
-                }
-                if (other.getLevel() != level) {
-                    other.setLevel(level);
-                }
-                if (Math.abs(other.getExp() - progress) > 0.0001F) {
-                    other.setExp(progress);
+            int remaining = Math.max(0, buyer.getLevel() - levels);
+            buyer.setLevel(remaining);
+            if (remaining == 0) {
+                buyer.setExp(0.0F);
+            }
+        } finally {
+            syncing = false;
+        }
+    }
+
+    // -------------------------------------------------------- shared experience
+
+    /**
+     * Adds picked-up experience to the team pool and hands the new total to everybody.
+     * <p>
+     * The points go into the pool instead of into the player who walked over the orb, so
+     * two people collecting in the same tick cannot overwrite each other's gain. Levels
+     * are counted off the pool total as well, which is why this does the payout itself
+     * rather than waiting for a level event that only one player would fire.
+     */
+    public void addSharedExperience(Player source, int points) {
+        if (syncing || points <= 0 || state.sharing() != Sharing.SHARED || !state.isRunning()) {
+            return;
+        }
+        long before = state.teamExperience();
+        long after = before + points;
+        state.teamExperience(after);
+        pushSharedExperience();
+
+        int gained = Xp.levelOf(after) - Xp.levelOf(before);
+        if (gained > 0) {
+            awardLevels(source, gained);
+        }
+    }
+
+    /** Writes the pool total onto every player inside the challenge worlds. */
+    public void pushSharedExperience() {
+        if (state.sharing() != Sharing.SHARED) {
+            return;
+        }
+        long total = state.teamExperience();
+        syncing = true;
+        try {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                if (worlds.isGameWorld(player.getWorld())) {
+                    Xp.apply(player, total);
                 }
             }
         } finally {
@@ -445,24 +544,44 @@ public final class GameService {
         }
     }
 
-    /** Brings a player who just joined a shared run in line with the rest of the team. */
+    /**
+     * Rebuilds the pool from one player and pushes it back out.
+     * <p>
+     * Enchanting tables, anvils and {@code /xp} change a level behind the pool's back.
+     * Whoever caused it holds the truth afterwards, so their total becomes the new pool
+     * total. No level payout here on purpose: this corrects the pool, it does not earn
+     * anything.
+     */
+    public void syncSharedFrom(Player source) {
+        if (syncing || state.sharing() != Sharing.SHARED || !worlds.isGameWorld(source.getWorld())) {
+            return;
+        }
+        state.teamExperience(Xp.totalOf(source));
+        pushSharedExperience();
+    }
+
+    /** Brings a player who just joined or crossed into a shared run in line with the team. */
     public void adoptSharedExperience(Player joining) {
-        if (state.sharing() != Sharing.SHARED || !state.isActive()) {
+        if (state.sharing() != Sharing.SHARED || !worlds.isGameWorld(joining.getWorld())) {
             return;
         }
-        for (Player other : Bukkit.getOnlinePlayers()) {
-            if (other.equals(joining) || !worlds.isGameWorld(other.getWorld())) {
-                continue;
-            }
-            syncing = true;
-            try {
-                joining.setLevel(other.getLevel());
-                joining.setExp(other.getExp());
-            } finally {
-                syncing = false;
-            }
-            return;
+        syncing = true;
+        try {
+            Xp.apply(joining, state.teamExperience());
+        } finally {
+            syncing = false;
         }
+    }
+
+    /** Highest total anybody in the run is carrying, used when seeding the pool. */
+    private long highestExperience() {
+        long best = 0L;
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            if (worlds.isGameWorld(player.getWorld())) {
+                best = Math.max(best, Xp.totalOf(player));
+            }
+        }
+        return best;
     }
 
     public boolean isSyncing() {
@@ -488,6 +607,26 @@ public final class GameService {
         state.markDirty();
     }
 
+    /**
+     * Nearest legal spot for a position that ended up outside the unlocked area, or
+     * {@code null} when this world is not restricted. Used to redirect ender pearls and
+     * portal exits instead of swallowing them.
+     */
+    public Location nearestInside(World world, Location outside) {
+        ColumnSet columns = regions.peek(world);
+        if (columns == null || columns.isEmpty()) {
+            return null;
+        }
+        OptionalLong nearest = columns.nearest(outside.getBlockX(), outside.getBlockZ());
+        if (nearest.isEmpty()) {
+            return null;
+        }
+        int x = Keys.unpackX(nearest.getAsLong());
+        int z = Keys.unpackZ(nearest.getAsLong());
+        int y = WorldService.standableY(world, x, z, outside.getBlockY());
+        return new Location(world, x + 0.5D, y, z + 0.5D, outside.getYaw(), outside.getPitch());
+    }
+
     /** Pulls a player back into the unlocked area, e.g. after a login outside it. */
     public void rescue(Player player) {
         if (state.mode() != Mode.LEVEL_BLOCK || !state.isActive() || isExempt(player)) {
@@ -502,28 +641,10 @@ public final class GameService {
         if (columns.contains(at.getBlockX(), at.getBlockZ())) {
             return;
         }
-        OptionalLong nearest = columns.nearest(at.getBlockX(), at.getBlockZ());
-        if (nearest.isEmpty()) {
-            return;
+        Location target = nearestInside(world, at);
+        if (target != null) {
+            player.teleport(target);
         }
-        int x = Keys.unpackX(nearest.getAsLong());
-        int z = Keys.unpackZ(nearest.getAsLong());
-        player.teleport(new Location(world, x + 0.5D, safeY(world, x, z, at.getBlockY()), z + 0.5D,
-                at.getYaw(), at.getPitch()));
-    }
-
-    /**
-     * Keeps the player at their own height when there is room for them there. Someone who
-     * gets pushed out of a mine shaft should land back in the shaft, not on the surface.
-     */
-    private static int safeY(World world, int x, int z, int wantedY) {
-        int y = Math.max(world.getMinHeight() + 1, Math.min(world.getMaxHeight() - 2, wantedY));
-        if (world.getBlockAt(x, y, z).isPassable()
-                && world.getBlockAt(x, y + 1, z).isPassable()
-                && !world.getBlockAt(x, y - 1, z).getType().isAir()) {
-            return y;
-        }
-        return world.getHighestBlockYAt(x, z) + 1;
     }
 
     /** Safety net for everything a move event cannot see: pearls, pistons, plugin pushes. */
@@ -548,6 +669,9 @@ public final class GameService {
     public void switchMode(Mode mode) {
         state.mode(mode);
         if (mode == Mode.LEVEL_BORDER) {
+            if (!state.hasBorderSize()) {
+                border.reset();
+            }
             border.apply(false);
             return;
         }
@@ -562,7 +686,15 @@ public final class GameService {
     }
 
     public void switchSharing(Sharing sharing) {
+        Sharing previous = state.sharing();
         state.sharing(sharing);
+        if (sharing != Sharing.SHARED || previous == Sharing.SHARED) {
+            return;
+        }
+        // Switching over must not cost anybody their experience, so the pool starts at
+        // whatever the furthest player had and everyone is levelled up to it.
+        state.teamExperience(Math.max(state.teamExperience(), highestExperience()));
+        pushSharedExperience();
     }
 
     public void shutdown() {
@@ -570,16 +702,29 @@ public final class GameService {
     }
 
     public Component describeStatus() {
+        String progress = state.mode() == Mode.LEVEL_BORDER
+                ? "<gray>Border <aqua>" + ActionBarService.formatSize(border.targetSize()) + "</aqua></gray>"
+                : "<gray>Bloecke <aqua>" + regions.totalColumns() + "</aqua></gray>";
         return Text.mm("<gray>Modus <white>%mode%</white> <dark_gray>|</dark_gray> XP <white>%xpmode%</white>"
                         + " <dark_gray>|</dark_gray> Status <white>%status%</white>"
                         + " <dark_gray>|</dark_gray> Zeit <white>%time%</white>"
-                        + " <dark_gray>|</dark_gray> Bloecke <aqua>%blocks%</aqua>"
+                        + " <dark_gray>|</dark_gray> " + progress
                         + " <dark_gray>|</dark_gray> Level <aqua>%levels%</aqua></gray>",
                 "mode", state.mode().display(),
                 "xpmode", state.sharing().display(),
-                "status", state.phase().name(),
+                "status", statusText(),
                 "time", Text.formatTime(state.elapsedSeconds()),
-                "blocks", regions.totalColumns(),
                 "levels", state.totalLevels());
+    }
+
+    public String statusText() {
+        return switch (state.phase()) {
+            case RUNNING -> "Laeuft";
+            case PAUSED -> "Pausiert";
+            case COUNTDOWN -> "Countdown";
+            case FINISHED -> "Beendet";
+            case FAILED -> "Gescheitert";
+            case IDLE -> "Bereit";
+        };
     }
 }

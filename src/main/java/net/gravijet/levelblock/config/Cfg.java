@@ -19,6 +19,16 @@ import java.util.logging.Level;
  */
 public final class Cfg {
 
+    /** Bumped whenever an existing config.yml needs adjusting, see {@link #migrate}. */
+    private static final int CONFIG_VERSION = 2;
+
+    private static final String PREFIX_V2 =
+            "<gradient:#00E5FF:#7C4DFF><bold>Challenge</bold></gradient> <dark_gray>|</dark_gray> ";
+    private static final String RESET_KICK_V2 =
+            "<gradient:#00E5FF:#7C4DFF><bold>Challenge</bold></gradient><newline>"
+                    + "<gray>Die Welten werden neu generiert.</gray><newline>"
+                    + "<white>Komm gleich wieder rein!</white>";
+
     private final JavaPlugin plugin;
 
     public Mode defaultMode = Mode.LEVEL_BLOCK;
@@ -54,6 +64,7 @@ public final class Cfg {
     public int unlockCost = 1;
     public int costIncreaseEvery = 0;
     public boolean sneakBlocks = true;
+    public boolean takeLevels = true;
     public boolean broadcastUnlock = false;
 
     // barrier (the red ground line in LEVEL_BLOCK)
@@ -77,11 +88,9 @@ public final class Cfg {
     public boolean actionbarEnabled = true;
     public int actionbarRefreshTicks = 4;
     public List<TextColor> actionbarGradient = List.of(TextColor.color(0x00E5FF), TextColor.color(0x7C4DFF));
-    public boolean actionbarAnimate = true;
+    public boolean actionbarAnimate = false;
     public double actionbarSpeed = 0.012D;
     public boolean actionbarBold = true;
-    public String actionbarSuffixBlock = "";
-    public String actionbarSuffixBorder = "";
 
     // effects
     public Color themeColor = Color.fromRGB(0x00E5FF);
@@ -105,6 +114,8 @@ public final class Cfg {
 
     public void load() {
         plugin.reloadConfig();
+        // Before copyDefaults, so a missing config-version really reads as missing.
+        migrate(plugin.getConfig());
         plugin.getConfig().options().copyDefaults(true);
         plugin.saveConfig();
         this.raw = plugin.getConfig();
@@ -138,6 +149,7 @@ public final class Cfg {
         unlockCost = Math.max(0, c.getInt("unlock.cost", 1));
         costIncreaseEvery = Math.max(0, c.getInt("unlock.cost-increase-every", 0));
         sneakBlocks = c.getBoolean("unlock.sneak-blocks", true);
+        takeLevels = c.getBoolean("unlock.take-levels", true);
         broadcastUnlock = c.getBoolean("unlock.broadcast", false);
 
         barrierEnabled = c.getBoolean("barrier.enabled", true);
@@ -158,11 +170,9 @@ public final class Cfg {
         actionbarEnabled = c.getBoolean("actionbar.enabled", true);
         actionbarRefreshTicks = (int) clamp(c.getInt("actionbar.refresh-ticks", 4), 1, 40);
         actionbarGradient = palette(c.getStringList("actionbar.gradient"));
-        actionbarAnimate = c.getBoolean("actionbar.animate", true);
+        actionbarAnimate = c.getBoolean("actionbar.animate", false);
         actionbarSpeed = clamp(c.getDouble("actionbar.animation-speed", 0.012D), 0.0D, 0.5D);
         actionbarBold = c.getBoolean("actionbar.bold", true);
-        actionbarSuffixBlock = c.getString("actionbar.suffix-block", "");
-        actionbarSuffixBorder = c.getString("actionbar.suffix-border", "");
 
         themeColor = color(c.getString("effects.color"), 0x00E5FF, "effects.color");
         unlockAnimation = c.getBoolean("effects.unlock-animation", true);
@@ -174,6 +184,44 @@ public final class Cfg {
         restrictExplosions = c.getBoolean("protection.restrict-explosions", true);
 
         resetShutdown = c.getBoolean("reset.shutdown-server", true);
+    }
+
+    /**
+     * Brings a config.yml written by an older build in line with the current one.
+     * <p>
+     * {@code copyDefaults} only ever <em>adds</em> missing keys, so a value whose meaning
+     * changed - the prefix, the timer gradient - would keep its old wording forever on a
+     * server that has run the plugin before. Only those few keys are touched, and only
+     * when they still hold the value the old build shipped, so a hand-picked prefix
+     * survives untouched.
+     */
+    private void migrate(FileConfiguration c) {
+        int version = c.getInt("config-version", 1);
+        if (version >= CONFIG_VERSION) {
+            return;
+        }
+        if (version < 2) {
+            // The plugin introduces itself as "Challenge" now.
+            replaceIfContains(c, "general.prefix", "LevelBlock", PREFIX_V2);
+            replaceIfContains(c, "messages.reset-kick", "LevelBlock", RESET_KICK_V2);
+            // The timer wears the prefix gradient instead of its own animated ramp.
+            c.set("actionbar.gradient", List.of("#00E5FF", "#7C4DFF"));
+            c.set("actionbar.animate", false);
+            // The action bar carries the clock alone; the numbers moved to /blocks and
+            // /border, and the spawn point is moved silently.
+            c.set("actionbar.suffix-block", null);
+            c.set("actionbar.suffix-border", null);
+            c.set("messages.spawn-moved", null);
+        }
+        c.set("config-version", CONFIG_VERSION);
+        plugin.getLogger().info("config.yml auf Version " + CONFIG_VERSION + " aktualisiert.");
+    }
+
+    private static void replaceIfContains(FileConfiguration c, String path, String marker, String replacement) {
+        String current = c.getString(path);
+        if (current != null && current.contains(marker)) {
+            c.set(path, replacement);
+        }
     }
 
     public String msg(String key) {
