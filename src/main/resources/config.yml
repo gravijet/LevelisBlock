@@ -1,0 +1,212 @@
+# ============================================================================
+#  LevelBlock  -  by GraviJet
+#
+#  Zwei Spielmodi:
+#    LEVEL_BLOCK  : Ihr startet auf einer 3x3 Flaeche. Jedes XP-Level gibt
+#                   Guthaben. Lauf einfach gegen die rote Linie, dann wird
+#                   der Block davor freigeschaltet - kein Item, kein Menue.
+#    LEVEL_BORDER : Jedes XP-Level vergroessert die Worldborder.
+#
+#  Die Challenge laeuft dort, wo jemand /timer start benutzt. Es wird KEINE
+#  eigene Welt erstellt. Mit /reset werden alle Welten geloescht und der
+#  Server faehrt herunter - beim naechsten Start wird mit zufaelligem Seed
+#  neu generiert.
+#
+#  Befehle:
+#    /timer start | pause | resume | reset | set <zeit>
+#    /lb          alles andere (auch /levelblock und /levelborder)
+#    /reset       alle Welten loeschen und neu generieren
+#
+#  Fast alles hier laesst sich auch live per Befehl aendern:
+#    /lb config <option> <wert>
+#
+#  Farben/Texte nutzen MiniMessage: https://docs.advntr.dev/minimessage/format
+# ============================================================================
+
+# LEVEL_BLOCK oder LEVEL_BORDER. Zur Laufzeit: /lb mode <modus>
+mode: LEVEL_BLOCK
+
+general:
+  # Wie viele Sekunden zwischen automatischen Speichervorgaengen.
+  autosave-seconds: 60
+  # Praefix vor allen Chat-Nachrichten.
+  prefix: "<gradient:#00E5FF:#7C4DFF><bold>LevelBlock</bold></gradient> <dark_gray>|</dark_gray> "
+  # Spieler im Kreativmodus duerfen die Begrenzung ignorieren.
+  creative-bypasses: true
+  # Zuschauer (Spectator) duerfen die Begrenzung ignorieren.
+  spectator-bypasses: true
+
+start:
+  # Kantenlaenge des Startbereichs (3 = 3x3). Immer eine ungerade Zahl.
+  area-size: 3
+  # Countdown in Sekunden vor dem Start.
+  countdown-seconds: 5
+  # Spieler waehrend des Countdowns einfrieren.
+  freeze-during-countdown: true
+  # Beim Start Inventar, XP, Leben, Hunger und Effekte zuruecksetzen.
+  reset-players: true
+  # Beim Start alle Spieler in den Ueberlebensmodus setzen.
+  force-survival: true
+  # Untergrund der Startflaeche begehbar machen (Wasser/Lava/Luft auffuellen).
+  prepare-platform: true
+  platform-material: STONE
+  # So viele Sekunden nach dem Start kann niemand Schaden nehmen. Schuetzt
+  # vor dem Start-Feuerwerk und vor einem Pech-Spawn. 0 = aus.
+  invulnerable-seconds: 6
+  # WICHTIG fuer den Mobspawn: Minecraft laesst im Umkreis von 24 Bloecken um
+  # den Weltspawn grundsaetzlich nichts spawnen, und spawn-protection aus der
+  # server.properties verbietet Nicht-Ops dort das Bauen. Beides wuerde die
+  # Challenge kaputtmachen, wenn man genau auf dem Weltspawn startet. Darum
+  # wird der Weltspawn beim Start um so viele Bloecke weggeschoben.
+  # Respawns landen trotzdem am Startpunkt. 0 = Weltspawn nicht anfassen.
+  spawn-point-distance: 512
+
+timer:
+  # COUNT_UP = hochzaehlen, COUNT_DOWN = runterzaehlen (Spiel endet bei 0).
+  mode: COUNT_UP
+  # Startwert fuer COUNT_DOWN, in Sekunden (3600 = 1 Stunde).
+  countdown-from-seconds: 3600
+  # Timer nach einem Serverneustart automatisch weiterlaufen lassen.
+  resume-after-restart: false
+
+progress:
+  # INDIVIDUAL = Jeder hat seine eigene Erfahrung und kauft seine eigenen
+  #              Bloecke. Bei LEVEL_BORDER zaehlen die Level aller Spieler
+  #              trotzdem zusammen fuer die Border.
+  # SHARED     = Alle Spieler haben immer genau gleich viel Erfahrung und
+  #              teilen sich ein gemeinsames Guthaben.
+  # Zur Laufzeit: /lb xp <individual|shared>
+  sharing: INDIVIDUAL
+  # Wie viel Guthaben ein XP-Level gibt (LEVEL_BLOCK).
+  credits-per-level: 1
+  # Guthaben, mit dem gestartet wird.
+  starting-credits: 0
+
+unlock:
+  # Kosten pro Block.
+  cost: 1
+  # Alle N freigeschalteten Bloecke steigen die Kosten um 1. 0 = deaktiviert.
+  cost-increase-every: 0
+  # Beim Schleichen wird nichts freigeschaltet - so kommt man gefahrlos an
+  # den Rand. Es gibt bewusst keinen Cooldown: pro Schritt kann sowieso nur
+  # ein einziger Block gekauft werden.
+  sneak-blocks: true
+  # Freischaltungen im Chat ankuendigen.
+  broadcast: false
+
+# Die rote Linie am Boden im Modus LEVEL_BLOCK. Reine Anzeige - es gibt
+# bewusst keine Wand aus Bloecken, an der man haengen bleiben kann.
+barrier:
+  enabled: true
+  color: "#FF1F1F"
+  # Groesse der einzelnen Partikel.
+  particle-size: 1.0
+  # Wie viele Punkte pro Blockkante. Hoeher = dichter, aber mehr Pakete.
+  points-per-block: 4
+  # Nur Kanten in diesem Umkreis um den Spieler zeichnen.
+  render-distance: 16
+  # Alle X Ticks neu zeichnen.
+  refresh-ticks: 8
+  # Sicherheitsgrenze fuer die Partikelanzahl pro Spieler und Durchlauf.
+  max-points: 900
+  # Kurzer Sound, wenn man gegen die Grenze laeuft.
+  bump-feedback: true
+
+# Die Worldborder im Modus LEVEL_BORDER. Sie wird nur den Spielern gesetzt,
+# nicht der Welt selbst - dadurch spawnen und laufen Mobs weiterhin
+# ueberall, nur die Spieler kommen nicht raus.
+border:
+  # Groesse der Border zu Spielbeginn.
+  start-size: 3.0
+  # Zuwachs pro XP-Level in Bloecken (Durchmesser).
+  blocks-per-level: 1.0
+  # Obergrenze.
+  max-size: 59999968.0
+  # Dauer der Wachstums-Animation in Sekunden.
+  grow-animation-seconds: 1.0
+  # Ab diesem Abstand blendet der Client den roten Warnrand ein. Bei einer
+  # kleinen Border waere der Bildschirm dauerhaft rot, darum standardmaessig 0.
+  warning-distance: 0
+
+# Der Timer ueber der Hotbar. Es gibt weder Scoreboard noch Bossbar.
+actionbar:
+  enabled: true
+  # Alle X Ticks aktualisieren (kleiner = fluessigerer Farbverlauf).
+  refresh-ticks: 4
+  # Farben des Verlaufs, mindestens zwei.
+  gradient:
+    - "#00E5FF"
+    - "#7C4DFF"
+    - "#FF3D71"
+  # Der Verlauf wandert durch den Text.
+  animate: true
+  animation-speed: 0.012
+  bold: true
+  # Text hinter der Zeit. Platzhalter: %credits% %blocks% %levels% %border%
+  #                                    %mode% %xpmode% %status% %players%
+  suffix-block: "<dark_gray> | </dark_gray><gray>Guthaben</gray> <white>%credits%</white><dark_gray> | </dark_gray><gray>Bloecke</gray> <white>%blocks%</white>"
+  suffix-border: "<dark_gray> | </dark_gray><gray>Border</gray> <white>%border%x%border%</white><dark_gray> | </dark_gray><gray>Level</gray> <white>%levels%</white>"
+
+effects:
+  # Akzentfarbe fuer Animationen.
+  color: "#00E5FF"
+  unlock-animation: true
+  start-animation: true
+  start-fireworks: true
+  # Lautstaerke aller Plugin-Sounds (0.0 - 1.0).
+  volume: 0.8
+
+protection:
+  # Bloecke ausserhalb des freigeschalteten Bereichs koennen nicht abgebaut
+  # oder platziert werden (verhindert Reichweiten-Tricks).
+  restrict-block-edits: true
+  # Explosionen zerstoeren nichts ausserhalb des Bereichs.
+  restrict-explosions: true
+
+reset:
+  # /reset confirm faehrt den Server danach herunter. Die meisten Hoster und
+  # Startskripte starten ihn dann automatisch wieder. Auf false bleibt der
+  # Server an und du stoppst ihn selbst - geloescht wird trotzdem erst beim
+  # Herunterfahren.
+  shutdown-server: true
+
+messages:
+  no-permission: "<red>Dafuer fehlt dir die Berechtigung.</red>"
+  players-only: "<red>Das geht nur als Spieler.</red>"
+  game-not-running: "<red>Die Challenge laeuft gerade nicht.</red>"
+  game-already-running: "<red>Die Challenge laeuft bereits.</red>"
+  game-started: "<green>Die Challenge wurde gestartet!</green>"
+  game-stopped: "<yellow>Die Challenge wurde gestoppt.</yellow>"
+  game-paused: "<yellow>Die Challenge wurde pausiert.</yellow>"
+  game-resumed: "<green>Die Challenge laeuft weiter.</green>"
+  countdown-title: "<gradient:#00E5FF:#7C4DFF><bold>%n%</bold></gradient>"
+  countdown-subtitle: "<gray>Macht euch bereit...</gray>"
+  start-title: "<gradient:#00E5FF:#7C4DFF><bold>%mode%</bold></gradient>"
+  start-subtitle: "<white>Viel Erfolg!</white>"
+  failed-title: "<red><bold>CHALLENGE BEENDET</bold></red>"
+  failed-subtitle: "<white>%player%</white> <gray>ist nach</gray> <white>%time%</white> <gray>gestorben.</gray>"
+  failed-chat: "<red>%player% ist gestorben - die Challenge ist vorbei.</red> <gray>Zeit:</gray> <white>%time%</white> <dark_gray>|</dark_gray> <gray>Bloecke:</gray> <white>%blocks%</white>"
+  not-enough-credits: "<red>Nicht genug Guthaben!</red> <gray>Benoetigt:</gray> <white>%cost%</white> <dark_gray>|</dark_gray> <gray>Du hast:</gray> <white>%credits%</white>"
+  unlocked-broadcast: "<aqua>%player%</aqua> <gray>hat einen Block freigeschaltet.</gray> <dark_gray>Insgesamt:</dark_gray> <white>%blocks%</white>"
+  border-grown: "<aqua>%player%</aqua> <gray>hat die Border auf</gray> <white>%size%x%size%</white> <gray>vergroessert.</gray>"
+  credits-own: "<gray>Dein Guthaben:</gray> <aqua>%credits%</aqua>"
+  credits-changed: "<green>Guthaben von <white>%player%</white> ist jetzt <white>%credits%</white>.</green>"
+  timer-set: "<green>Timer auf <white>%time%</white> gesetzt.</green>"
+  timer-expired-title: "<red><bold>ZEIT ABGELAUFEN</bold></red>"
+  timer-expired-subtitle: "<gray>Ihr habt <white>%blocks%</white> Bloecke geschafft.</gray>"
+  mode-changed: "<green>Modus auf <white>%mode%</white> gesetzt.</green>"
+  xp-mode-changed: "<green>Erfahrung: <white>%mode%</white></green>"
+  config-value: "<gray>%key%</gray> <dark_gray>=</dark_gray> <white>%value%</white>"
+  config-set: "<green><white>%key%</white> auf <white>%value%</white> gesetzt.</green>"
+  reset-game: "<yellow>Das Spiel wurde zurueckgesetzt.</yellow>"
+  reset-world-confirm: "<red>Achtung!</red> <gray>Das loescht ALLE Welten unwiderruflich und stoppt den Server.</gray><newline><gray>Bestaetige mit</gray> <white>/reset confirm</white>"
+  spawn-moved: "<gray>Weltspawn auf</gray> <white>%x% / %z%</white> <gray>verschoben, damit im Spielgebiet Mobs spawnen.</gray>"
+  reset-world-start: "<yellow>Alle Welten werden geloescht. Der Server startet gleich neu...</yellow>"
+  reset-world-manual: "<yellow>Reset vorbereitet.</yellow> <gray>Stoppe den Server jetzt selbst - beim Herunterfahren werden die Welten geloescht.</gray>"
+  reset-kick: "<gradient:#00E5FF:#7C4DFF><bold>LevelBlock</bold></gradient><newline><gray>Die Welten werden neu generiert.</gray><newline><white>Komm gleich wieder rein!</white>"
+  bypass-on: "<green>Bypass aktiviert.</green> <gray>Du ignorierst die Begrenzung.</gray>"
+  bypass-off: "<yellow>Bypass deaktiviert.</yellow>"
+  reloaded: "<green>Konfiguration neu geladen.</green>"
+  top-header: "<gray>Meiste gesammelte Level:</gray>"
+  top-entry: "<dark_gray>%rank%.</dark_gray> <white>%player%</white> <dark_gray>-</dark_gray> <aqua>%levels%</aqua>"
+  top-empty: "<gray>Noch keine Level gesammelt.</gray>"

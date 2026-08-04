@@ -1,0 +1,18 @@
+name: LevelBlock
+version: '${version}'
+main: net.gravijet.levelblock.Main
+api-version: '26.2'
+description: 'Level = Block und Level = Border Challenge fuer Paper.'
+author: GraviJet
+website: 'https://github.com/GraviJet/LevelBlock'
+
+permissions:
+  levelblock.play:
+    description: 'Darf Bloecke freischalten, indem man gegen die Grenze laeuft.'
+    default: true
+  levelblock.admin:
+    description: 'Voller Zugriff auf /timer, /lb und /reset.'
+    default: op
+  levelblock.bypass:
+    description: 'Darf die Begrenzung mit /lb bypass ignorieren.'
+    default: op
