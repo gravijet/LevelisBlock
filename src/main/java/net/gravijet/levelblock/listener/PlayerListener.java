@@ -3,6 +3,7 @@ package net.gravijet.levelblock.listener;
 import net.gravijet.levelblock.Mode;
 import net.gravijet.levelblock.Sharing;
 import net.gravijet.levelblock.core.BorderService;
+import net.gravijet.levelblock.core.CollisionService;
 import net.gravijet.levelblock.core.ColumnSet;
 import net.gravijet.levelblock.core.GameService;
 import net.gravijet.levelblock.core.GameState;
@@ -37,11 +38,12 @@ public final class PlayerListener implements Listener {
     private final UnlockService unlocks;
     private final BorderService border;
     private final WorldService worlds;
+    private final CollisionService collisions;
     private final ContainmentListener containment;
 
     public PlayerListener(JavaPlugin plugin, GameState state, RegionService regions, GameService game,
                           UnlockService unlocks, BorderService border, WorldService worlds,
-                          ContainmentListener containment) {
+                          CollisionService collisions, ContainmentListener containment) {
         this.plugin = plugin;
         this.state = state;
         this.regions = regions;
@@ -49,6 +51,7 @@ public final class PlayerListener implements Listener {
         this.unlocks = unlocks;
         this.border = border;
         this.worlds = worlds;
+        this.collisions = collisions;
         this.containment = containment;
     }
 
@@ -59,6 +62,7 @@ public final class PlayerListener implements Listener {
         Player player = event.getPlayer();
         state.putName(player.getUniqueId(), player.getName());
         border.attach(player);
+        collisions.add(player);
         if (state.isActive()) {
             game.adoptSharedExperience(player);
             game.rescue(player);

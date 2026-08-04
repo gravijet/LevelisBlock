@@ -13,7 +13,7 @@ import java.util.Locale;
  * The only HUD element: the timer, drawn over the hotbar in the same colour gradient the
  * chat prefix uses.
  * <p>
- * The action bar carries the clock and nothing else - no credits, no block count, no
+ * The action bar carries the clock and nothing else - no levels, no block count, no
  * plugin feedback. Everything else has a command ({@code /blocks}, {@code /border},
  * {@code /lb}), which keeps the bar readable and stops messages from fighting the timer.
  */

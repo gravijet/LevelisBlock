@@ -19,7 +19,7 @@ import org.bukkit.entity.Player;
  * <p>
  * Deliberately small: start, pause, resume, reset and set are what you reach for mid-round,
  * so they get a command that has no other branches to tab through. Everything about the
- * challenge itself - mode, experience model, credits, config - lives in {@code /lb}.
+ * challenge itself - mode, experience model, config - lives in {@code /lb}.
  */
 public final class TimerCommand {
 

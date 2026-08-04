@@ -12,8 +12,8 @@ import org.bukkit.event.player.PlayerLevelChangeEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 /**
- * Turns XP levels into unlock credits (block mode) or border growth (border mode).
- * In border mode the levels of every player add up into one shared total.
+ * Watches XP levels. In border mode a gained level widens the ring; in block mode the
+ * level simply stays on the player until they spend it on a block.
  */
 public final class ProgressListener implements Listener {
 

@@ -20,7 +20,7 @@ import java.util.logging.Level;
 public final class Cfg {
 
     /** Bumped whenever an existing config.yml needs adjusting, see {@link #migrate}. */
-    private static final int CONFIG_VERSION = 2;
+    private static final int CONFIG_VERSION = 3;
 
     private static final String PREFIX_V2 =
             "<gradient:#00E5FF:#7C4DFF><bold>Challenge</bold></gradient> <dark_gray>|</dark_gray> ";
@@ -39,6 +39,7 @@ public final class Cfg {
     public String prefix = "";
     public boolean creativeBypasses = true;
     public boolean spectatorBypasses = true;
+    public boolean playerCollision = false;
 
     // start
     public int startAreaSize = 3;
@@ -56,15 +57,10 @@ public final class Cfg {
     public long countdownFromSeconds = 3600L;
     public boolean resumeAfterRestart = false;
 
-    // progress
-    public int creditsPerLevel = 1;
-    public int startingCredits = 0;
-
-    // unlock
+    // unlock - the price of a block, in XP levels
     public int unlockCost = 1;
     public int costIncreaseEvery = 0;
     public boolean sneakBlocks = true;
-    public boolean takeLevels = true;
     public boolean broadcastUnlock = false;
 
     // barrier (the red ground line in LEVEL_BLOCK)
@@ -74,7 +70,8 @@ public final class Cfg {
     public int barrierPointsPerBlock = 5;
     public int barrierRenderDistance = 20;
     public int barrierRefreshTicks = 8;
-    public int barrierMaxPoints = 1500;
+    public int barrierMaxPoints = 3000;
+    public int barrierMaxHeight = 12;
     public boolean bumpFeedback = true;
 
     // border (the world border in LEVEL_BORDER)
@@ -127,6 +124,7 @@ public final class Cfg {
         prefix = c.getString("general.prefix", "");
         creativeBypasses = c.getBoolean("general.creative-bypasses", true);
         spectatorBypasses = c.getBoolean("general.spectator-bypasses", true);
+        playerCollision = c.getBoolean("general.player-collision", false);
 
         startAreaSize = Math.max(1, c.getInt("start.area-size", 3)) | 1; // force odd
         countdownSeconds = Math.max(0, c.getInt("start.countdown-seconds", 5));
@@ -143,22 +141,20 @@ public final class Cfg {
         resumeAfterRestart = c.getBoolean("timer.resume-after-restart", false);
 
         defaultSharing = Sharing.parse(c.getString("progress.sharing"), Sharing.INDIVIDUAL);
-        creditsPerLevel = Math.max(0, c.getInt("progress.credits-per-level", 1));
-        startingCredits = Math.max(0, c.getInt("progress.starting-credits", 0));
 
         unlockCost = Math.max(0, c.getInt("unlock.cost", 1));
         costIncreaseEvery = Math.max(0, c.getInt("unlock.cost-increase-every", 0));
         sneakBlocks = c.getBoolean("unlock.sneak-blocks", true);
-        takeLevels = c.getBoolean("unlock.take-levels", true);
         broadcastUnlock = c.getBoolean("unlock.broadcast", false);
 
         barrierEnabled = c.getBoolean("barrier.enabled", true);
         barrierColor = color(c.getString("barrier.color"), 0xFF1F1F, "barrier.color");
         barrierParticleSize = (float) clamp(c.getDouble("barrier.particle-size", 1.0D), 0.1D, 4.0D);
         barrierPointsPerBlock = (int) clamp(c.getInt("barrier.points-per-block", 4), 1, 16);
-        barrierRenderDistance = (int) clamp(c.getInt("barrier.render-distance", 16), 4, 96);
+        barrierRenderDistance = (int) clamp(c.getInt("barrier.render-distance", 48), 4, 128);
         barrierRefreshTicks = (int) clamp(c.getInt("barrier.refresh-ticks", 8), 1, 40);
-        barrierMaxPoints = (int) clamp(c.getInt("barrier.max-points", 900), 64, 20_000);
+        barrierMaxPoints = (int) clamp(c.getInt("barrier.max-points", 3000), 64, 20_000);
+        barrierMaxHeight = (int) clamp(c.getInt("barrier.max-height", 12), 0, 64);
         bumpFeedback = c.getBoolean("barrier.bump-feedback", true);
 
         borderStartSize = Math.max(1.0D, c.getDouble("border.start-size", 3.0D));
@@ -213,8 +209,31 @@ public final class Cfg {
             c.set("actionbar.suffix-border", null);
             c.set("messages.spawn-moved", null);
         }
+        if (version < 3) {
+            // Credits are gone: a block is paid for with XP levels directly.
+            c.set("progress.credits-per-level", null);
+            c.set("progress.starting-credits", null);
+            c.set("unlock.take-levels", null);
+            c.set("messages.not-enough-credits", null);
+            c.set("messages.credits-own", null);
+            c.set("messages.credits-changed", null);
+            // Both overviews were rewritten and the old ones talk about credits.
+            c.set("messages.blocks-info", null);
+            c.set("messages.border-info", null);
+            // The barrier now carries much further and climbs cliffs, which the old
+            // render distance and point budget were far too small for.
+            raiseAtLeast(c, "barrier.render-distance", 48);
+            raiseAtLeast(c, "barrier.max-points", 3000);
+        }
         c.set("config-version", CONFIG_VERSION);
         plugin.getLogger().info("config.yml auf Version " + CONFIG_VERSION + " aktualisiert.");
+    }
+
+    /** Lifts a value to the new floor but leaves anything already higher alone. */
+    private static void raiseAtLeast(FileConfiguration c, String path, int minimum) {
+        if (c.isSet(path) && c.getInt(path, minimum) < minimum) {
+            c.set(path, minimum);
+        }
     }
 
     private static void replaceIfContains(FileConfiguration c, String path, String marker, String replacement) {

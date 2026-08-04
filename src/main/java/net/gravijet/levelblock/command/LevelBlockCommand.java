@@ -1,16 +1,12 @@
 package net.gravijet.levelblock.command;
 
 import com.mojang.brigadier.Command;
-import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import com.mojang.brigadier.builder.RequiredArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
-import io.papermc.paper.command.brigadier.argument.ArgumentTypes;
-import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSelectorArgumentResolver;
 import net.gravijet.levelblock.Mode;
 import net.gravijet.levelblock.Sharing;
 import net.gravijet.levelblock.config.Cfg;
@@ -28,7 +24,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.BiConsumer;
 
 /**
  * {@code /lb} (also {@code /levelblock} and {@code /levelborder}) - everything about the
@@ -49,6 +44,7 @@ public final class LevelBlockCommand {
             "mode",
             "general.creative-bypasses",
             "general.spectator-bypasses",
+            "general.player-collision",
             "start.area-size",
             "start.countdown-seconds",
             "start.invulnerable-seconds",
@@ -61,12 +57,9 @@ public final class LevelBlockCommand {
             "timer.countdown-from-seconds",
             "timer.resume-after-restart",
             "progress.sharing",
-            "progress.credits-per-level",
-            "progress.starting-credits",
             "unlock.cost",
             "unlock.cost-increase-every",
             "unlock.sneak-blocks",
-            "unlock.take-levels",
             "unlock.broadcast",
             "barrier.enabled",
             "barrier.color",
@@ -75,6 +68,7 @@ public final class LevelBlockCommand {
             "barrier.render-distance",
             "barrier.refresh-ticks",
             "barrier.max-points",
+            "barrier.max-height",
             "barrier.bump-feedback",
             "border.start-size",
             "border.blocks-per-level",
@@ -143,11 +137,6 @@ public final class LevelBlockCommand {
                                 .executes(context -> setSharing(context, Sharing.INDIVIDUAL)))
                         .then(Commands.literal("shared")
                                 .executes(context -> setSharing(context, Sharing.SHARED))))
-                .then(admin("credits")
-                        .then(Commands.literal("set").then(creditArgument((id, value) -> state.credits(id, value))))
-                        .then(Commands.literal("give").then(creditArgument(state::addCredits)))
-                        .then(Commands.literal("take")
-                                .then(creditArgument((id, value) -> state.credits(id, state.credits(id) - value)))))
                 .then(admin("config")
                         .then(Commands.argument("option", StringArgumentType.word())
                                 .suggests((context, builder) -> {
@@ -182,29 +171,12 @@ public final class LevelBlockCommand {
         return Commands.literal(name).requires(source -> source.getSender().hasPermission(ADMIN));
     }
 
-    private RequiredArgumentBuilder<CommandSourceStack, ?> creditArgument(BiConsumer<UUID, Integer> mutation) {
-        return Commands.argument("spieler", ArgumentTypes.player())
-                .then(Commands.argument("menge", IntegerArgumentType.integer(0))
-                        .executes(context -> {
-                            Player target = context.getArgument("spieler", PlayerSelectorArgumentResolver.class)
-                                    .resolve(context.getSource()).getFirst();
-                            mutation.accept(target.getUniqueId(), IntegerArgumentType.getInteger(context, "menge"));
-                            msg.send(sender(context), "credits-changed",
-                                    "player", target.getName(),
-                                    "credits", state.credits(target.getUniqueId()));
-                            return Command.SINGLE_SUCCESS;
-                        }));
-    }
-
     // ---------------------------------------------------------------- actions
 
     private int showInfo(CommandContext<CommandSourceStack> context) {
         CommandSender to = sender(context);
         to.sendMessage(Text.mm(cfg.prefix + "<white>Uebersicht</white>"));
         to.sendMessage(game.describeStatus());
-        if (to instanceof Player player && state.mode() == Mode.LEVEL_BLOCK) {
-            to.sendMessage(msg.of("credits-own", "credits", state.credits(player.getUniqueId())));
-        }
         if (to.hasPermission(ADMIN)) {
             to.sendMessage(Text.mm("<dark_gray>/lb help <gray>zeigt alle Befehle.</gray></dark_gray>"));
         }
@@ -214,7 +186,8 @@ public final class LevelBlockCommand {
     private int showHelp(CommandContext<CommandSourceStack> context) {
         CommandSender to = sender(context);
         to.sendMessage(Text.mm(cfg.prefix + "<white>Befehle</white>"));
-        to.sendMessage(Text.mm("<gray>/lb <dark_gray>-</dark_gray> Status und eigenes Guthaben</gray>"));
+        to.sendMessage(Text.mm("<gray>/lb <dark_gray>-</dark_gray> Status der Challenge</gray>"));
+        to.sendMessage(Text.mm("<gray>/levels <dark_gray>-</dark_gray> Level aller Spieler</gray>"));
         to.sendMessage(Text.mm("<gray>/blocks <dark_gray>-</dark_gray> freigeschaltete Bloecke und Kosten</gray>"));
         to.sendMessage(Text.mm("<gray>/border <dark_gray>-</dark_gray> aktuelle Bordergroesse</gray>"));
         to.sendMessage(Text.mm("<gray>/lb top <dark_gray>-</dark_gray> Rangliste der gesammelten Level</gray>"));
@@ -231,7 +204,6 @@ public final class LevelBlockCommand {
         to.sendMessage(Text.mm("<gray>/lb mode <white>level_block|level_border</white></gray>"));
         to.sendMessage(Text.mm("<gray>/lb xp <white>individual|shared</white> "
                 + "<dark_gray>-</dark_gray> eigene oder geteilte Erfahrung</gray>"));
-        to.sendMessage(Text.mm("<gray>/lb credits <white>set|give|take</white> <spieler> <menge></gray>"));
         to.sendMessage(Text.mm("<gray>/lb config <option> [wert] "
                 + "<dark_gray>-</dark_gray> jede Einstellung live aendern</gray>"));
         to.sendMessage(Text.mm("<gray>/lb bypass <dark_gray>|</dark_gray> save <dark_gray>|</dark_gray> reload</gray>"));

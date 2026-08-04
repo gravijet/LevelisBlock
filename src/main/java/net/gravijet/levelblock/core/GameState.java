@@ -9,12 +9,13 @@ import java.util.UUID;
 
 /**
  * Everything that has to survive a restart: mode, timer, the anchor the run was started
- * on, per-player credits and stats. The timer is stored as wall-clock millis so server
- * lag never makes it drift.
+ * on, the shared experience pool and the stats. The timer is stored as wall-clock millis
+ * so server lag never makes it drift.
  * <p>
- * Credits are per player on purpose: in {@link Mode#LEVEL_BLOCK} everyone spends their own
- * experience. {@link #totalLevels()} on the other hand is the shared pool that drives the
- * border in {@link Mode#LEVEL_BORDER}, where the whole team's XP counts together.
+ * There is no currency here. In {@link Mode#LEVEL_BLOCK} players pay for blocks with their
+ * own XP levels, which live on the player, not in this class. {@link #totalLevels()} is
+ * the running count of everything the team ever earned and drives the border in
+ * {@link Mode#LEVEL_BORDER}.
  */
 public final class GameState {
 
@@ -42,7 +43,6 @@ public final class GameState {
     private int anchorZ;
 
     private long totalLevels;
-    private int sharedCredits;
 
     /**
      * The team's experience in {@link Sharing#SHARED}, as an absolute point total.
@@ -64,7 +64,6 @@ public final class GameState {
      */
     private double borderSize;
 
-    private final Map<UUID, Integer> creditsByPlayer = new HashMap<>();
     private final Map<UUID, Long> levelsByPlayer = new HashMap<>();
     private final Map<UUID, String> nameByPlayer = new HashMap<>();
 
@@ -196,49 +195,6 @@ public final class GameState {
         markDirty();
     }
 
-    // -------------------------------------------------------------- credits
-
-    /** Credits available to {@code player} - the shared pool when {@link Sharing#SHARED}. */
-    public int credits(UUID player) {
-        return sharing == Sharing.SHARED ? sharedCredits : creditsByPlayer.getOrDefault(player, 0);
-    }
-
-    public void credits(UUID player, int credits) {
-        int value = Math.max(0, credits);
-        if (sharing == Sharing.SHARED) {
-            sharedCredits = value;
-        } else {
-            creditsByPlayer.put(player, value);
-        }
-        markDirty();
-    }
-
-    public void addCredits(UUID player, int amount) {
-        credits(player, credits(player) + amount);
-    }
-
-    public boolean spendCredits(UUID player, int amount) {
-        int have = credits(player);
-        if (have < amount) {
-            return false;
-        }
-        credits(player, have - amount);
-        return true;
-    }
-
-    public Map<UUID, Integer> creditsByPlayer() {
-        return creditsByPlayer;
-    }
-
-    public int sharedCredits() {
-        return sharedCredits;
-    }
-
-    public void sharedCredits(int value) {
-        this.sharedCredits = Math.max(0, value);
-        markDirty();
-    }
-
     // ------------------------------------------------------- shared experience
 
     public long teamExperience() {
@@ -301,11 +257,9 @@ public final class GameState {
 
     public void resetProgress() {
         totalLevels = 0L;
-        sharedCredits = 0;
         teamExperience = 0L;
         borderSize = 0.0D;
         levelsByPlayer.clear();
-        creditsByPlayer.clear();
         accumulatedMillis = 0L;
         resumedAtMillis = System.currentTimeMillis();
         phase = Phase.IDLE;

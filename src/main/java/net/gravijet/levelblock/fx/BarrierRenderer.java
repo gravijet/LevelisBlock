@@ -12,26 +12,35 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Draws the edge of the unlocked area as a solid red line on the ground.
+ * Draws the edge of the unlocked area as a red line along the ground.
  * <p>
  * There is deliberately no wall here - no block displays, no barrier blocks, nothing the
  * player can collide with or clip through. The line is pure decoration that marks exactly
- * where the movement clamp in {@code ContainmentListener} kicks in, which is why it sits
- * flat on the surface: it has to read as "this is the edge", not as an obstacle.
+ * where the movement clamp in {@code ContainmentListener} kicks in.
+ * <p>
+ * Where the ground steps up or down across the edge the line climbs with it, so a cliff
+ * face reads as a wall instead of the line vanishing into the rock or hanging in mid-air.
  * <p>
  * Everything is drawn per player and only within {@code barrier.render-distance}, so the
  * cost scales with how much edge is actually being looked at, not with the region size.
+ * The dust is sent forced, which is what makes it show up far away and on the lowest
+ * particle setting.
  */
 public final class BarrierRenderer {
 
     /** Lifts the dust off the surface so it does not disappear inside the block below. */
     private static final double GROUND_OFFSET = 0.08D;
-    /** How far down we look for the surface, relative to the player's feet. */
-    private static final int GROUND_SCAN_DOWN = 8;
-    private static final int GROUND_SCAN_UP = 2;
+    /** How far around the player's own height the surface is looked for. */
+    private static final int GROUND_SCAN_DOWN = 24;
+    private static final int GROUND_SCAN_UP = 8;
+    /** Vertical spacing of the climbing part, in blocks. */
+    private static final double HEIGHT_STEP = 1.0D;
+    /** Only every n-th point along a face climbs, so a tall cliff cannot eat the budget. */
+    private static final int CLIMB_EVERY = 2;
 
     private final Cfg cfg;
     private final GameState state;
@@ -71,6 +80,9 @@ public final class BarrierRenderer {
         int feetY = player.getLocation().getBlockY();
 
         int budget = cfg.barrierMaxPoints;
+        // Neighbouring faces keep asking for the same columns, and a ground scan is the
+        // only expensive thing here - so it is done once per column and per pass.
+        Map<Long, Integer> groundCache = new HashMap<>();
 
         for (int cx = playerChunkX - chunkRadius; cx <= playerChunkX + chunkRadius && budget > 0; cx++) {
             for (int cz = playerChunkZ - chunkRadius; cz <= playerChunkZ + chunkRadius && budget > 0; cz++) {
@@ -89,12 +101,15 @@ public final class BarrierRenderer {
                     if (dx * dx + dz * dz > rangeSq) {
                         continue;
                     }
-                    double y = groundY(world, x, z, feetY) + GROUND_OFFSET;
+                    int inside = groundY(world, x, z, feetY, groundCache);
                     for (int dir = 0; dir < 4 && budget > 0; dir++) {
-                        if (columns.contains(x + ColumnSet.DX[dir], z + ColumnSet.DZ[dir])) {
+                        int nx = x + ColumnSet.DX[dir];
+                        int nz = z + ColumnSet.DZ[dir];
+                        if (columns.contains(nx, nz)) {
                             continue;
                         }
-                        budget -= drawFace(player, x, z, dir, y);
+                        int outside = groundY(world, nx, nz, feetY, groundCache);
+                        budget -= drawFace(player, x, z, dir, inside, outside);
                     }
                 }
             }
@@ -102,29 +117,53 @@ public final class BarrierRenderer {
     }
 
     /**
-     * One dense row of dust along a single block face.
+     * One block face: a row of dust along the ground plus, where the two sides sit at
+     * different heights, a curtain climbing the step between them.
      *
      * @return how many points were drawn
      */
-    private int drawFace(Player player, int x, int z, int dir, double y) {
-        int points = cfg.barrierPointsPerBlock;
+    private int drawFace(Player player, int x, int z, int dir, int insideY, int outsideY) {
+        int points = Math.max(1, cfg.barrierPointsPerBlock);
         double step = 1.0D / points;
         boolean alongX = dir == 0 || dir == 2;
         // The line sits exactly on the block boundary the movement clamp uses.
         double edgeX = dir == 1 ? x + 1.0D : x;
         double edgeZ = dir == 2 ? z + 1.0D : z;
 
+        // The step is drawn between the two ground heights, so it covers a wall in front of
+        // the player as well as a drop behind the edge. Flat ground gets the row only.
+        boolean stepped = insideY != outsideY && cfg.barrierMaxHeight > 0;
+        double low = Math.min(insideY, outsideY) + GROUND_OFFSET;
+        double high = Math.min(Math.max(insideY, outsideY),
+                Math.min(insideY, outsideY) + cfg.barrierMaxHeight) + GROUND_OFFSET;
+
+        int drawn = 0;
         for (int i = 0; i < points; i++) {
             double offset = (i + 0.5D) * step;
-            double px = alongX ? x + offset : edgeX;
-            double pz = alongX ? edgeZ : z + offset;
-            Fx.dustForced(player, px, y, pz, cfg.barrierColor, cfg.barrierParticleSize);
+            double dustX = alongX ? x + offset : edgeX;
+            double dustZ = alongX ? edgeZ : z + offset;
+
+            Fx.dustForced(player, dustX, insideY + GROUND_OFFSET, dustZ,
+                    cfg.barrierColor, cfg.barrierParticleSize);
+            drawn++;
+
+            if (!stepped || i % CLIMB_EVERY != 0) {
+                continue;
+            }
+            for (double y = low; y <= high; y += HEIGHT_STEP) {
+                Fx.dustForced(player, dustX, y, dustZ, cfg.barrierColor, cfg.barrierParticleSize);
+                drawn++;
+            }
         }
-        return points;
+        return drawn;
     }
 
     /** Surface height at the column, searched around the player's own feet. */
-    private static int groundY(World world, int x, int z, int feetY) {
+    private static int groundY(World world, int x, int z, int feetY, Map<Long, Integer> cache) {
+        return cache.computeIfAbsent(Keys.pack(x, z), ignored -> scanGround(world, x, z, feetY));
+    }
+
+    private static int scanGround(World world, int x, int z, int feetY) {
         int top = Math.min(world.getMaxHeight() - 1, feetY + GROUND_SCAN_UP);
         int bottom = Math.max(world.getMinHeight(), feetY - GROUND_SCAN_DOWN);
         for (int y = top; y >= bottom; y--) {

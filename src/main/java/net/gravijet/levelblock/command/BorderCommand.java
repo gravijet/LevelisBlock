@@ -6,6 +6,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.tree.LiteralCommandNode;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
+import net.gravijet.levelblock.Mode;
 import net.gravijet.levelblock.config.Cfg;
 import net.gravijet.levelblock.core.BorderService;
 import net.gravijet.levelblock.core.GameState;
@@ -17,9 +18,9 @@ import org.bukkit.command.CommandSender;
 /**
  * {@code /border} - the current ring size, and {@code /border set <groesse>} to change it.
  * <p>
- * Reading it is free for everyone; changing it needs the admin permission. The size is
- * stored in the game state, so an admin correction survives the next level-up instead of
- * being recomputed away.
+ * Only exists while {@link Mode#LEVEL_BORDER} is being played. Reading it is free for
+ * everyone; changing it needs the admin permission. The size is stored in the game state,
+ * so an admin correction survives the next level-up instead of being recomputed away.
  */
 public final class BorderCommand {
 
@@ -47,9 +48,19 @@ public final class BorderCommand {
                 .build();
     }
 
+    private boolean wrongMode(CommandSender to) {
+        if (state.mode() == Mode.LEVEL_BORDER) {
+            return false;
+        }
+        msg.send(to, "only-in-mode", "mode", Mode.LEVEL_BORDER.display());
+        return true;
+    }
+
     private int show(CommandContext<CommandSourceStack> context) {
         CommandSender to = context.getSource().getSender();
-
+        if (wrongMode(to)) {
+            return Command.SINGLE_SUCCESS;
+        }
         to.sendMessage(Text.mm(cfg.prefix + "<white>Border</white>"));
         to.sendMessage(msg.of("border-info",
                 "size", ActionBarService.formatSize(border.targetSize()),
@@ -63,10 +74,12 @@ public final class BorderCommand {
     }
 
     private int set(CommandContext<CommandSourceStack> context) {
-        double size = DoubleArgumentType.getDouble(context, "groesse");
-        border.setSize(size, true);
-        msg.send(context.getSource().getSender(), "border-set",
-                "size", ActionBarService.formatSize(border.targetSize()));
+        CommandSender to = context.getSource().getSender();
+        if (wrongMode(to)) {
+            return Command.SINGLE_SUCCESS;
+        }
+        border.setSize(DoubleArgumentType.getDouble(context, "groesse"), true);
+        msg.send(to, "border-set", "size", ActionBarService.formatSize(border.targetSize()));
         return Command.SINGLE_SUCCESS;
     }
 }

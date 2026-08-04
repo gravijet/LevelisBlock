@@ -97,7 +97,6 @@ public final class Storage {
         state.mode(Mode.parse(yaml.getString("mode"), cfg.defaultMode));
         state.sharing(Sharing.parse(yaml.getString("sharing"), cfg.defaultSharing));
         state.totalLevels(yaml.getLong("total-levels", 0L));
-        state.sharedCredits(yaml.getInt("shared-credits", 0));
         state.teamExperience(yaml.getLong("team-experience", 0L));
         state.borderSize(yaml.getDouble("border-size", 0.0D));
         state.elapsedSeconds(yaml.getLong("elapsed-seconds", 0L));
@@ -129,7 +128,6 @@ public final class Storage {
                 try {
                     UUID id = UUID.fromString(rawId);
                     state.levelsByPlayer().put(id, players.getLong(rawId + ".levels", 0L));
-                    state.creditsByPlayer().put(id, players.getInt(rawId + ".credits", 0));
                     state.putName(id, players.getString(rawId + ".name", "?"));
                 } catch (IllegalArgumentException ignored) {
                     // Skip malformed entries rather than failing the whole load.
@@ -237,7 +235,6 @@ public final class Storage {
         yaml.set("phase", state.phase().name());
         yaml.set("elapsed-seconds", state.elapsedSeconds());
         yaml.set("total-levels", state.totalLevels());
-        yaml.set("shared-credits", state.sharedCredits());
         yaml.set("team-experience", state.teamExperience());
         yaml.set("border-size", state.borderSize());
         if (state.hasAnchor()) {
@@ -248,9 +245,6 @@ public final class Storage {
         }
         for (Map.Entry<UUID, Long> entry : state.levelsByPlayer().entrySet()) {
             yaml.set("players." + entry.getKey() + ".levels", entry.getValue());
-        }
-        for (Map.Entry<UUID, Integer> entry : state.creditsByPlayer().entrySet()) {
-            yaml.set("players." + entry.getKey() + ".credits", entry.getValue());
         }
         ConfigurationSection players = yaml.getConfigurationSection("players");
         if (players != null) {

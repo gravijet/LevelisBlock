@@ -4,10 +4,12 @@ import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
 import net.gravijet.levelblock.command.BlocksCommand;
 import net.gravijet.levelblock.command.BorderCommand;
 import net.gravijet.levelblock.command.LevelBlockCommand;
+import net.gravijet.levelblock.command.LevelsCommand;
 import net.gravijet.levelblock.command.ResetCommand;
 import net.gravijet.levelblock.command.TimerCommand;
 import net.gravijet.levelblock.config.Cfg;
 import net.gravijet.levelblock.core.BorderService;
+import net.gravijet.levelblock.core.CollisionService;
 import net.gravijet.levelblock.core.GameService;
 import net.gravijet.levelblock.core.GameState;
 import net.gravijet.levelblock.core.RegionService;
@@ -41,6 +43,7 @@ public final class Main extends JavaPlugin {
     private BarrierRenderer barrier;
     private BorderService border;
     private GameService game;
+    private CollisionService collisions;
 
     private final List<BukkitTask> tasks = new ArrayList<>();
     private boolean resetting;
@@ -66,20 +69,22 @@ public final class Main extends JavaPlugin {
         actionBar = new ActionBarService(cfg, state);
         barrier = new BarrierRenderer(cfg, state, regions);
         game = new GameService(this, cfg, state, regions, worlds, border, animations, storage, msg);
+        collisions = new CollisionService(cfg);
         UnlockService unlocks = new UnlockService(cfg, state, regions, game, animations, msg);
 
         ContainmentListener containment =
                 new ContainmentListener(cfg, state, regions, game, unlocks, border);
         getServer().getPluginManager().registerEvents(containment, this);
         getServer().getPluginManager().registerEvents(new PlayerListener(
-                this, state, regions, game, unlocks, border, worlds, containment), this);
+                this, state, regions, game, unlocks, border, worlds, collisions, containment), this);
         getServer().getPluginManager().registerEvents(new ProgressListener(this, state, game, worlds), this);
         getServer().getPluginManager().registerEvents(new DamageListener(game, worlds, fxKey), this);
 
         WorldReset worldReset = new WorldReset(this);
         TimerCommand timer = new TimerCommand(state, game, msg);
-        BlocksCommand blocks = new BlocksCommand(cfg, state, regions, unlocks, msg);
+        BlocksCommand blocks = new BlocksCommand(cfg, state, regions, unlocks, game, msg);
         BorderCommand borderCommand = new BorderCommand(cfg, state, border, msg);
+        LevelsCommand levels = new LevelsCommand(cfg, worlds, msg);
         LevelBlockCommand admin =
                 new LevelBlockCommand(this, cfg, state, game, storage, msg, this::reloadEverything);
         ResetCommand reset = new ResetCommand(this, cfg, worldReset, msg, this::beginReset);
@@ -91,6 +96,8 @@ public final class Main extends JavaPlugin {
                     "Zeigt freigeschaltete Bloecke, Guthaben und die naechsten Kosten");
             event.registrar().register(borderCommand.build(),
                     "Zeigt die Bordergroesse und setzt sie mit /border set");
+            event.registrar().register(levels.build(),
+                    "Zeigt die Level aller Spieler in der Challenge");
             event.registrar().register(admin.build(),
                     "Steuert die Level = Block / Level = Border Challenge",
                     List.of("lb", "levelborder"));
@@ -102,6 +109,7 @@ public final class Main extends JavaPlugin {
         getServer().getScheduler().runTask(this, () -> {
             worldReset.reportPreviousReset();
             border.apply(false);
+            collisions.apply();
         });
 
         startLoops();
@@ -136,6 +144,7 @@ public final class Main extends JavaPlugin {
         // Border sizes and the warning distance are read when the border is pushed out,
         // so a changed value only reaches the clients if we push it again.
         border.apply(false);
+        collisions.apply();
     }
 
     /** Called by {@code /reset}: drop the stored data and stop writing any more of it. */
@@ -160,6 +169,9 @@ public final class Main extends JavaPlugin {
 
         if (game != null) {
             game.shutdown();
+        }
+        if (collisions != null) {
+            collisions.disband();
         }
         if (storage != null && !resetting) {
             storage.saveAll(false);

@@ -2,10 +2,11 @@
 #  Challenge  -  by GraviJet
 #
 #  Zwei Spielmodi:
-#    LEVEL_BLOCK  : Ihr startet auf einer 3x3 Flaeche. Jedes XP-Level gibt
-#                   Guthaben. Lauf einfach gegen die rote Linie, dann wird
-#                   der Block davor freigeschaltet - kein Item, kein Menue.
-#                   Ein Kauf kostet Guthaben UND das XP-Level selbst.
+#    LEVEL_BLOCK  : Ihr startet auf einer 3x3 Flaeche. Bezahlt wird direkt
+#                   mit XP-Leveln - es gibt kein Guthaben daneben. Lauf
+#                   einfach gegen die rote Linie, dann wird der Block davor
+#                   freigeschaltet und ein Level abgezogen. Der Fortschritt
+#                   im Balken bleibt erhalten, genau wie beim Verzaubern.
 #    LEVEL_BORDER : Jedes XP-Level vergroessert die Worldborder.
 #
 #  Die Challenge laeuft dort, wo jemand /timer start benutzt. Es wird KEINE
@@ -15,8 +16,9 @@
 #
 #  Befehle:
 #    /timer start | pause | resume | set <zeit>
-#    /blocks      freigeschaltete Bloecke und Guthaben
-#    /border      aktuelle Bordergroesse (und /border set <groesse>)
+#    /blocks      freigeschaltete Bloecke     (nur bei LEVEL_BLOCK)
+#    /border      Bordergroesse, /border set  (nur bei LEVEL_BORDER)
+#    /levels      Level aller Spieler
 #    /lb          alles andere (auch /levelblock und /levelborder)
 #    /reset       alle Welten loeschen und neu generieren
 #
@@ -28,7 +30,7 @@
 
 # Wird vom Plugin gepflegt. Nicht anfassen - daran erkennt es, ob eine
 # aeltere config.yml an die aktuelle Fassung angeglichen werden muss.
-config-version: 2
+config-version: 3
 
 # LEVEL_BLOCK oder LEVEL_BORDER. Zur Laufzeit: /lb mode <modus>
 mode: LEVEL_BLOCK
@@ -42,6 +44,9 @@ general:
   creative-bypasses: true
   # Zuschauer (Spectator) duerfen die Begrenzung ignorieren.
   spectator-bypasses: true
+  # Auf false koennen Spieler durcheinander durchlaufen. Auf einer 3x3
+  # Startflaeche schiebt man sich sonst gegenseitig ueber den Rand.
+  player-collision: false
 
 start:
   # Kantenlaenge des Startbereichs (3 = 3x3). Immer eine ungerade Zahl.
@@ -84,23 +89,17 @@ progress:
   #              teilen sich ein gemeinsames Guthaben.
   # Zur Laufzeit: /lb xp <individual|shared>
   sharing: INDIVIDUAL
-  # Wie viel Guthaben ein XP-Level gibt (LEVEL_BLOCK).
-  credits-per-level: 1
-  # Guthaben, mit dem gestartet wird.
-  starting-credits: 0
 
 unlock:
-  # Kosten pro Block.
+  # Wie viele XP-Level ein Block kostet.
   cost: 1
-  # Alle N freigeschalteten Bloecke steigen die Kosten um 1. 0 = deaktiviert.
+  # Alle N freigeschalteten Bloecke steigen die Kosten um 1 Level.
+  # 0 = deaktiviert.
   cost-increase-every: 0
   # Beim Schleichen wird nichts freigeschaltet - so kommt man gefahrlos an
   # den Rand. Es gibt bewusst keinen Cooldown: pro Schritt kann sowieso nur
   # ein einziger Block gekauft werden.
   sneak-blocks: true
-  # Ein Kauf zieht zusaetzlich zum Guthaben auch die XP-Level ab, die das
-  # Guthaben eingebracht haben. Der Spieler faengt also wieder bei 0 an.
-  take-levels: true
   # Freischaltungen im Chat ankuendigen.
   broadcast: false
 
@@ -113,12 +112,17 @@ barrier:
   particle-size: 1.0
   # Wie viele Punkte pro Blockkante. Hoeher = dichter, aber mehr Pakete.
   points-per-block: 4
-  # Nur Kanten in diesem Umkreis um den Spieler zeichnen.
-  render-distance: 16
+  # Nur Kanten in diesem Umkreis um den Spieler zeichnen. Die Partikel werden
+  # erzwungen gesendet, der Client zeigt sie also auch weit weg und bei
+  # niedrigster Partikel-Einstellung.
+  render-distance: 48
   # Alle X Ticks neu zeichnen.
   refresh-ticks: 8
   # Sicherheitsgrenze fuer die Partikelanzahl pro Spieler und Durchlauf.
-  max-points: 900
+  max-points: 3000
+  # Springt der Boden am Rand, klettert die Linie die Kante hoch bzw. runter.
+  # So viele Bloecke Hoehenunterschied werden dabei hoechstens gezeichnet.
+  max-height: 12
   # Kurzer Sound, wenn man gegen die Grenze laeuft.
   bump-feedback: true
 
@@ -196,12 +200,11 @@ messages:
   failed-title: "<red><bold>CHALLENGE BEENDET</bold></red>"
   failed-subtitle: "<white>%player%</white> <gray>ist nach</gray> <white>%time%</white> <gray>gestorben.</gray>"
   failed-chat: "<red>%player% ist gestorben - die Challenge ist vorbei.</red> <gray>Zeit:</gray> <white>%time%</white> <dark_gray>|</dark_gray> <gray>Bloecke:</gray> <white>%blocks%</white>"
-  not-enough-credits: "<red>Nicht genug Guthaben!</red> <gray>Benoetigt:</gray> <white>%cost%</white> <dark_gray>|</dark_gray> <gray>Du hast:</gray> <white>%credits%</white>"
+  not-enough-levels: "<red>Du brauchst</red> <white>%cost% Level</white><red>, hast aber nur</red> <white>%levels%</white><red>.</red>"
+  only-in-mode: "<red>Das gibt es nur im Modus</red> <white>%mode%</white><red>.</red>"
   unlocked-broadcast: "<aqua>%player%</aqua> <gray>hat einen Block freigeschaltet.</gray> <dark_gray>Insgesamt:</dark_gray> <white>%blocks%</white>"
   border-grown: "<aqua>%player%</aqua> <gray>hat die Border auf</gray> <white>%size%x%size%</white> <gray>vergroessert.</gray>"
   border-set: "<green>Border auf <white>%size%x%size%</white> gesetzt.</green>"
-  credits-own: "<gray>Dein Guthaben:</gray> <aqua>%credits%</aqua>"
-  credits-changed: "<green>Guthaben von <white>%player%</white> ist jetzt <white>%credits%</white>.</green>"
   timer-set: "<green>Timer auf <white>%time%</white> gesetzt.</green>"
   timer-expired-title: "<red><bold>ZEIT ABGELAUFEN</bold></red>"
   timer-expired-subtitle: "<gray>Ihr habt <white>%blocks%</white> Bloecke geschafft.</gray>"
@@ -220,7 +223,10 @@ messages:
   top-header: "<gray>Meiste gesammelte Level:</gray>"
   top-entry: "<dark_gray>%rank%.</dark_gray> <white>%player%</white> <dark_gray>-</dark_gray> <aqua>%levels%</aqua>"
   top-empty: "<gray>Noch keine Level gesammelt.</gray>"
-  # Uebersicht von /blocks. %blocks% %credits% %cost% %levels% %players%
-  blocks-info: "<dark_gray>▎</dark_gray> <gray>Freigeschaltet</gray> <white>%blocks%</white> <gray>Bloecke</gray><newline><dark_gray>▎</dark_gray> <gray>Dein Guthaben</gray> <white>%credits%</white><newline><dark_gray>▎</dark_gray> <gray>Naechster Block</gray> <white>%cost%</white> <gray>Level</gray><newline><dark_gray>▎</dark_gray> <gray>Gesammelte Level</gray> <white>%levels%</white>"
-  # Uebersicht von /border. %size% %per% %levels% %next%
-  border-info: "<dark_gray>▎</dark_gray> <gray>Groesse</gray> <white>%size% x %size%</white><newline><dark_gray>▎</dark_gray> <gray>Pro Level</gray> <white>+%per%</white><newline><dark_gray>▎</dark_gray> <gray>Naechstes Level</gray> <white>%next% x %next%</white><newline><dark_gray>▎</dark_gray> <gray>Gesammelte Level</gray> <white>%levels%</white>"
+  # /blocks. Platzhalter: %blocks% %cost% %levels%
+  blocks-info: "<white>%blocks%</white> <gray>Bloecke freigeschaltet. Der naechste kostet</gray> <white>%cost% Level</white><gray>, du hast</gray> <white>%levels%</white><gray>.</gray>"
+  # /border. Platzhalter: %size% %per% %next% %levels%
+  border-info: "<gray>Aktuell</gray> <white>%size% x %size%</white><gray>. Jedes Level gibt</gray> <white>+%per%</white><gray>, als naechstes also</gray> <white>%next% x %next%</white><gray>.</gray>"
+  # /levels, eine Zeile pro Spieler. Platzhalter: %player% %level% %next% %percent%
+  levels-entry: "<white>%player%</white> <dark_gray>-</dark_gray> <gray>Level</gray> <aqua>%level%</aqua> <dark_gray>(</dark_gray><gray>%percent%% bis</gray> <gray>%next%</gray><dark_gray>)</dark_gray>"
+  levels-empty: "<gray>Gerade ist niemand in der Challenge.</gray>"

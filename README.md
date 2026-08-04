@@ -3,10 +3,10 @@
 Zwei Challenges für Paper, im Stil einer BastiGHG-Challenge. Kein Menü, kein Scoreboard,
 keine Bossbar – nur ein Timer in der Actionbar und Befehle.
 
-**Level = Block** – ihr startet auf einer 3×3-Fläche. Jedes XP-Level gibt Guthaben. Lauf
-einfach gegen die rote Linie am Boden, dann wird der Block davor freigeschaltet. Kein Item,
-kein Menü, und pro Schritt immer nur genau ein Block. Ein Kauf kostet das Guthaben **und**
-das XP-Level dahinter – der Balken fängt danach wieder bei null an.
+**Level = Block** – ihr startet auf einer 3×3-Fläche. Lauf einfach gegen die rote Linie am
+Boden, dann wird der Block davor freigeschaltet. Kein Item, kein Menü, und pro Schritt
+immer nur genau ein Block. Bezahlt wird direkt mit XP-Leveln – es gibt kein Guthaben
+daneben. Der Fortschritt im Balken bleibt dabei erhalten, genau wie beim Verzaubern.
 
 **Level = Border** – jedes XP-Level vergrößert die Worldborder. Sie startet bei 3×3 und
 lässt sich jederzeit mit `/border set <größe>` von Hand korrigieren. Die Level aller
@@ -25,15 +25,15 @@ zurück in den Überlebensmodus und werden zum Startpunkt teleportiert.
 | `/timer resume` | Weiterspielen – alle in Survival und zurück zum Startpunkt, auch nach einem Tod |
 | `/timer reset` | Fortschritt und Zeit zurücksetzen |
 | `/timer set <zeit>` | Zeit setzen, z. B. `90`, `10m`, `1:30:00` |
-| `/blocks` | Freigeschaltete Blöcke, Guthaben und Kosten des nächsten Blocks |
-| `/border` | Aktuelle Bordergröße und was das nächste Level bringt |
+| `/levels` | Level aller Spieler samt Prozent bis zum nächsten |
+| `/blocks` | Freigeschaltete Blöcke und Kosten des nächsten (nur `LEVEL_BLOCK`) |
+| `/border` | Aktuelle Bordergröße und was das nächste Level bringt (nur `LEVEL_BORDER`) |
 | `/border set <größe>` | Border von Hand setzen (Admin) |
-| `/lb` | Status und eigenes Guthaben |
+| `/lb` | Status der Challenge |
 | `/lb top` | Rangliste der gesammelten Level |
 | `/lb stop` | Challenge beenden |
 | `/lb mode <level_block\|level_border>` | Spielmodus umstellen |
 | `/lb xp <individual\|shared>` | Erfahrungsmodell umstellen |
-| `/lb credits <set\|give\|take> <spieler> <menge>` | Guthaben verwalten |
 | `/lb config <option> [wert]` | Jede Einstellung live ändern |
 | `/lb bypass` | Begrenzung für dich selbst ignorieren |
 | `/lb save` / `/lb reload` | Speichern bzw. Config neu laden |
@@ -46,10 +46,22 @@ Rechte: `levelblock.play` (Standard: alle), `levelblock.admin` und `levelblock.b
 
 ## Erfahrungsmodelle
 
-* `INDIVIDUAL` – jeder hat seine eigene Erfahrung und kauft seine eigenen Blöcke. Bei
+* `INDIVIDUAL` – jeder hat seine eigene Erfahrung und zahlt seine Blöcke selbst. Bei
   `LEVEL_BORDER` zählen die Level aller Spieler trotzdem zusammen für die Border.
-* `SHARED` – alle haben immer exakt gleich viel Erfahrung und teilen ein gemeinsames
-  Guthaben.
+* `SHARED` – ein gemeinsamer Topf. Aufgesammelte Erfahrung geht nicht an den, der über das
+  Orb gelaufen ist, sondern in den Topf, und alle bekommen denselben Gesamtwert. Level,
+  Balken und Punktzahl werden aus dieser einen Zahl abgeleitet, sind also immer identisch –
+  auch wenn zwei Leute im selben Tick einsammeln.
+
+## Der Rand
+
+Die rote Linie liegt genau dort, wo die Bewegungssperre greift. Springt der Boden am Rand,
+klettert sie die Kante hoch bzw. runter, damit eine Wand auch wie eine Wand aussieht. Die
+Partikel werden erzwungen gesendet – sie sind also auch weit weg und bei niedrigster
+Partikel-Einstellung sichtbar (`barrier.render-distance`, Standard 48).
+
+Spielerkollision ist aus (`general.player-collision`). Auf 3×3 schiebt man sich sonst
+gegenseitig über den Rand, und der Geschobene zahlt ein Level, das niemand ausgeben wollte.
 
 ## Die Actionbar
 

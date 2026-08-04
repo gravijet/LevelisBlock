@@ -92,18 +92,32 @@ public final class WorldService {
         return new Location(world, x + 0.5D, y, z + 0.5D);
     }
 
+    /** How far up and down a spot is looked for before giving up and using the surface. */
+    private static final int STANDABLE_SEARCH = 32;
+
     /**
-     * Lowest y at or above {@code wanted} where a player fits, falling back to the surface.
-     * Keeping the wanted height when it works means someone pushed out of a mine shaft
-     * lands back in the shaft instead of on the roof.
+     * Height nearest to {@code wanted} where a player fits, falling back to the surface.
+     * <p>
+     * Searches downwards <em>and</em> upwards, closest first, and downwards wins on a tie.
+     * That is what keeps a caver in their cave: someone pushed back at the edge of a tunnel
+     * lands on the tunnel floor a few blocks below, not on the mountain a hundred blocks
+     * above them. Only when the whole column has no room at all does the surface get used.
      */
     public static int standableY(World world, int x, int z, int wanted) {
         int min = world.getMinHeight() + 1;
         int max = world.getMaxHeight() - 2;
         int start = Math.max(min, Math.min(max, wanted));
-        for (int y = start; y <= Math.min(max, start + 8); y++) {
-            if (fits(world, x, y, z)) {
-                return y;
+        if (fits(world, x, start, z)) {
+            return start;
+        }
+        for (int offset = 1; offset <= STANDABLE_SEARCH; offset++) {
+            int down = start - offset;
+            if (down >= min && fits(world, x, down, z)) {
+                return down;
+            }
+            int up = start + offset;
+            if (up <= max && fits(world, x, up, z)) {
+                return up;
             }
         }
         return Math.max(min, Math.min(max, world.getHighestBlockYAt(x, z) + 1));

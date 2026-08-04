@@ -243,7 +243,6 @@ public final class GameService {
             if (cfg.forceSurvival && player.getGameMode() != GameMode.CREATIVE) {
                 player.setGameMode(GameMode.SURVIVAL);
             }
-            state.credits(player.getUniqueId(), cfg.startingCredits);
             player.teleport(spawn);
         }
         if (state.sharing() == Sharing.SHARED) {
@@ -428,20 +427,18 @@ public final class GameService {
 
     // ------------------------------------------------------------ level payout
 
-    /** What a gained level is worth - credits in block mode, border growth in border mode. */
+    /**
+     * What a gained level is worth. In block mode the level <em>is</em> the currency, so
+     * there is nothing to pay out - it simply stays on the player until they spend it on a
+     * block. In border mode it widens the ring.
+     */
     private void awardLevels(Player player, int amount) {
         if (amount <= 0 || !state.isRunning()) {
             return;
         }
         state.addLevels(player.getUniqueId(), player.getName(), amount);
 
-        if (state.mode() == Mode.LEVEL_BLOCK) {
-            int gained = amount * cfg.creditsPerLevel;
-            if (gained > 0) {
-                state.addCredits(player.getUniqueId(), gained);
-                Fx.play(player, Fx.ORB_PICKUP, cfg.volume, 1.5F);
-            }
-        } else {
+        if (state.mode() == Mode.LEVEL_BORDER) {
             border.grow(amount);
             msg.broadcast("border-grown",
                     "player", player.getName(),
@@ -461,44 +458,50 @@ public final class GameService {
         awardLevels(player, amount);
     }
 
+    /** Levels this player can spend right now - the pool's when experience is shared. */
+    public int availableLevels(Player player) {
+        return state.sharing() == Sharing.SHARED
+                ? Xp.levelOf(state.teamExperience())
+                : player.getLevel();
+    }
+
     /**
-     * Takes the experience a purchase cost back off the player.
+     * Pays for something in XP levels.
      * <p>
-     * Buying a block is meant to cost the level itself, not only the credit the level
-     * produced - otherwise the XP bar keeps climbing while blocks are being bought and the
-     * next level is always cheaper than the last. With {@link Sharing#SHARED} the whole
-     * team pays, because the whole team owns the pool.
+     * The bar keeps its fill, exactly like an enchanting table: only whole levels are
+     * taken, the progress towards the next one stays where it was. With
+     * {@link Sharing#SHARED} the pool pays, because the pool is what everybody is looking
+     * at.
+     *
+     * @return {@code false} when there were not enough levels; nothing is taken then
      */
-    public void chargeLevels(Player buyer, int credits) {
-        if (!cfg.takeLevels || credits <= 0) {
-            return;
-        }
-        int levels = cfg.creditsPerLevel > 0
-                ? (int) Math.ceil(credits / (double) cfg.creditsPerLevel)
-                : credits;
+    public boolean spendLevels(Player player, int levels) {
         if (levels <= 0) {
-            return;
+            return true;
         }
         if (state.sharing() == Sharing.SHARED) {
-            // Take it off the pool, then hand the reduced total to everybody at once.
             long total = state.teamExperience();
-            int target = Math.max(0, Xp.levelOf(total) - levels);
-            state.teamExperience(Xp.total(target, Xp.progressOf(total)));
+            int level = Xp.levelOf(total);
+            if (level < levels) {
+                return false;
+            }
+            state.teamExperience(Xp.total(level - levels, Xp.progressOf(total)));
             pushSharedExperience();
-            return;
+            return true;
         }
+        if (player.getLevel() < levels) {
+            return false;
+        }
+        // getExp() is untouched on purpose - that is the "keeps the bar" part.
         // The level change fires PlayerLevelChangeEvent; the guard keeps that from being
         // read back as earned progress.
         syncing = true;
         try {
-            int remaining = Math.max(0, buyer.getLevel() - levels);
-            buyer.setLevel(remaining);
-            if (remaining == 0) {
-                buyer.setExp(0.0F);
-            }
+            player.setLevel(player.getLevel() - levels);
         } finally {
             syncing = false;
         }
+        return true;
     }
 
     // -------------------------------------------------------- shared experience
@@ -643,8 +646,26 @@ public final class GameService {
         }
         Location target = nearestInside(world, at);
         if (target != null) {
-            player.teleport(target);
+            smoothTeleport(player, target);
         }
+    }
+
+    /**
+     * Teleport that tries not to feel like one.
+     * <p>
+     * The view direction is carried over so the camera does not snap, the fall counter is
+     * cleared so a rescue cannot turn into fall damage, and leftover momentum is dropped so
+     * the player does not immediately get flung back out of the area they were just put
+     * into. {@code teleportAsync} loads the target chunk off the main thread, which is what
+     * removes the freeze frame a plain teleport can cause.
+     */
+    public void smoothTeleport(Player player, Location target) {
+        Location to = target.clone();
+        to.setYaw(player.getLocation().getYaw());
+        to.setPitch(player.getLocation().getPitch());
+        player.setFallDistance(0.0F);
+        player.setVelocity(new org.bukkit.util.Vector(0.0D, 0.0D, 0.0D));
+        player.teleportAsync(to);
     }
 
     /** Safety net for everything a move event cannot see: pearls, pistons, plugin pushes. */

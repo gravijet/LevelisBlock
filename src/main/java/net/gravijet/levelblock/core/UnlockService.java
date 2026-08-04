@@ -21,8 +21,9 @@ import java.util.UUID;
  * column the player is pushing against and offers it here, so a player who clips a corner
  * still only ever pays for - and opens - one block.
  * <p>
- * A purchase costs the credit <em>and</em> the experience level behind it, so the XP bar
- * really starts over after every block instead of quietly carrying on upwards.
+ * A block is paid for in XP levels directly - there is no currency next to them. The bar
+ * keeps its fill, exactly like an enchanting table: whole levels go, the progress towards
+ * the next one stays.
  * <p>
  * There is deliberately no rate limit. One move event can only ever buy one column, so
  * walking is already the only throttle there is: keep running into the edge and the area
@@ -54,6 +55,7 @@ public final class UnlockService {
         this.msg = msg;
     }
 
+    /** Price of the next block, in XP levels. */
     public int currentCost() {
         int cost = cfg.unlockCost;
         if (cfg.costIncreaseEvery > 0) {
@@ -87,11 +89,10 @@ public final class UnlockService {
         }
 
         int cost = currentCost();
-        if (!state.spendCredits(id, cost)) {
+        if (!game.spendLevels(player, cost)) {
             deny(player, cost);
             return false;
         }
-        game.chargeLevels(player, cost);
         unlockColumn(world, x, z);
 
         Fx.play(player, Fx.BEACON_POWER, cfg.volume, 1.6F);
@@ -117,12 +118,12 @@ public final class UnlockService {
             Fx.play(player, Fx.NO, cfg.volume * 0.7F, 0.8F);
         }
         // The action bar belongs to the timer, so the reason goes to chat - rarely, because
-        // pressing against the edge without credits happens for seconds at a time.
+        // pressing against the edge without levels happens for seconds at a time.
         Long lastText = lastDenyText.get(id);
         if (lastText == null || now - lastText >= DENY_TEXT_MILLIS) {
             lastDenyText.put(id, now);
-            player.sendMessage(msg.prefixed("not-enough-credits",
-                    "cost", cost, "credits", state.credits(id)));
+            player.sendMessage(msg.prefixed("not-enough-levels",
+                    "cost", cost, "levels", game.availableLevels(player)));
         }
     }
 
